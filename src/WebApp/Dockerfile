@@ -11,12 +11,15 @@ RUN apt-get -y update \
     && apt-get clean \
     && npm install -g pnpm@${PNPM_VERSION}
 
-# Copy necessary files and restore as distinct layer
-COPY *.csproj ./
-RUN dotnet restore
+# Build from the src/ context: WebApp now references
+# Infrastructure.Messaging by project, so its source must be present.
+WORKDIR /src
+COPY Directory.Packages.props global.json ./
+COPY Infrastructure.Messaging/ Infrastructure.Messaging/
+COPY WebApp/ WebApp/
 
-# Copy everything else and build
-COPY . ./
+WORKDIR /src/WebApp
+RUN dotnet restore
 RUN pnpm install
 RUN pnpm run build
 RUN dotnet publish -c Release -o out
@@ -24,7 +27,7 @@ RUN dotnet publish -c Release -o out
 # Build runtime image
 FROM pitstop-dotnet-aspnet-base:1.0
 WORKDIR /app
-COPY --from=build-env /app/out .
+COPY --from=build-env /src/WebApp/out .
 
 # Expose ports
 EXPOSE 7005/tcp

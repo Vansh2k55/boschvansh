@@ -1,18 +1,20 @@
 FROM pitstop-dotnet-sdk-base:1.0 AS build-env
-WORKDIR /app
+WORKDIR /src
 
-# Copy necessary files and restore as distinct layer
-COPY *.csproj ./
+# Build from the src/ context: this service now references
+# Infrastructure.Messaging by project, so its source must be present.
+COPY Directory.Packages.props global.json ./
+COPY Infrastructure.Messaging/ Infrastructure.Messaging/
+COPY CustomerManagementAPI/ CustomerManagementAPI/
+
+WORKDIR /src/CustomerManagementAPI
 RUN dotnet restore
-
-# Copy everything else and build
-COPY . ./
 RUN dotnet publish -c Release -o out
 
 # Build runtime image
 FROM pitstop-dotnet-aspnet-base:1.0
 WORKDIR /app
-COPY --from=build-env /app/out .
+COPY --from=build-env /src/CustomerManagementAPI/out .
 
 # Expose ports
 EXPOSE 5100/tcp

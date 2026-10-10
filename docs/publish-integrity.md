@@ -101,11 +101,11 @@ This was verified, not assumed: the fixes were made, the three API images
 rebuilt, the containers force-recreated, and the identical `NullReferenceException`
 still appeared in the logs.
 
-## Options for a real fix
+## The fix that was applied: option A
 
-Not yet implemented — this is a scope decision.
+**Status: implemented and verified.** The local source is now authoritative.
 
-**A. Make the local source authoritative.** Swap `PackageReference` for
+**A. Make the local source authoritative.** *(chosen)* Swap `PackageReference` for
 `ProjectReference` in the services, and widen each Dockerfile build context to
 include `Infrastructure.Messaging`. Fixes the root cause properly and is
 arguably what a fork should do. Touches ~8 services, their Dockerfiles and the
@@ -123,20 +123,52 @@ per publishing service.
 
 A and C are complementary: A removes the spurious 30%, C removes the rest.
 
+### What option A changed
+
+- All nine services swapped `PackageReference` for a `ProjectReference` to
+  `..\Infrastructure.Messaging\Infrastructure.Messaging.csproj`.
+- Every Dockerfile now builds from the `src/` context and copies
+  `Directory.Packages.props`, `global.json` and the messaging source, so the
+  project reference resolves. The compose `build:` stanzas were widened to
+  match.
+- With the source finally compiled in, the two corrections take effect:
+  `Connect()` is awaited properly instead of being accidentally `async void`,
+  and the publisher is registered `AddSingleton` rather than `AddTransient`, so
+  one connection is shared instead of one being built per request.
+
+### What option A did not fix, by design
+
+A genuine broker outage still diverges. Re-running `kill-rabbitmq.ps1` after the
+fix:
+
+```
+fault write  customerId=chaos-9a97e278 accepted=False status=500
+divergence check: outage write accepted=False rowCommitted=True
+```
+
+That is the outbox problem, option C. The write still commits before the publish
+is attempted, so if the broker is genuinely unreachable the event is still lost.
+Option A removed the spurious failures that had nothing to do with an outage; it
+did not make publishing durable.
+
 ## Regression test
 
 `chaos-scripts/test-publish-integrity.ps1` reproduces the defect on demand and
 exits non-zero when any divergence is observed, so it can gate a build. It is
 the before/after measurement for whichever option is taken.
 
-Current measurement, 2026-10-10, before any effective fix:
+Measured 2026-10-10, same test, same healthy system:
 
-| | Result |
-| --- | --- |
-| Writes attempted | 20 |
-| Accepted (201) | 14 |
-| **Divergent (500, row committed, no event)** | **6 (30%)** |
-| Failed cleanly (nothing committed) | 0 |
+| | Before (package build) | After (option A) |
+| --- | --- | --- |
+| Writes attempted | 20 | 30 |
+| Accepted (201) | 14 | **30** |
+| **Divergent (500, row committed, no event)** | **6 (30%)** | **0 (0%)** |
+| Failed cleanly | 0 | 0 |
+| Exit code | 1 (FAIL) | **0 (PASS)** |
+
+Under a deliberate broker outage, divergence still reproduces. That is option C
+and remains open.
 
 It leaves `regress-*` customers in the sandbox database. Harmless, but they
 accumulate.
