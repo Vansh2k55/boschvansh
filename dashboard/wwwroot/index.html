@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pitstop Resilience Console</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="masthead">
+  <h1>Pitstop Resilience Console</h1>
+  <span class="sub">AI-assisted chaos engineering &middot; local sandbox</span>
+  <span class="spacer"></span>
+  <span class="freshness" id="freshness">connecting&hellip;</span>
+</header>
+
+<main>
+  <div class="stack">
+
+    <section class="panel">
+      <h2>Live system overview <span class="note" id="svc-summary"></span></h2>
+      <div class="body">
+        <div class="grid-services" id="services"><p class="empty">Loading&hellip;</p></div>
+        <div class="legend">
+          <span><i class="dot s-ok"></i> healthy</span>
+          <span><i class="dot s-warn"></i> degraded / recovering</span>
+          <span><i class="dot s-fail"></i> failed</span>
+          <span><i class="dot s-unknown"></i> no healthcheck &mdash; not measured</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Live monitoring <span class="note">probed from this dashboard, every 2s</span></h2>
+      <div class="body">
+        <table>
+          <thead><tr><th>Module page</th><th>Status</th><th class="num">Latency</th><th>State</th></tr></thead>
+          <tbody id="modules"></tbody>
+        </table>
+        <div id="integrity"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Dependency map &amp; blast radius <span class="note" id="graph-note"></span></h2>
+      <div class="body">
+        <div id="graph"><p class="empty">Run <code>map-dependencies.ps1</code> to generate the map.</p></div>
+        <div class="legend">
+          <span>&mdash; call / database</span>
+          <span>&middot;&middot;&middot; event via broker</span>
+          <span><i class="dot s-fail"></i> current experiment target</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Resilience assessment <span class="note">deterministic &mdash; no model produced any number here</span></h2>
+      <div class="body" id="assessment"><p class="empty">No assessment yet.</p></div>
+    </section>
+
+    <section class="panel">
+      <h2>Experiment history</h2>
+      <div class="body">
+        <table>
+          <thead><tr><th>Run</th><th>Experiment</th><th>Rollback</th><th>Recovered</th><th class="num">Recovery</th><th>Integrity</th></tr></thead>
+          <tbody id="runs"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="stack">
+
+    <section class="panel">
+      <h2>Experiment controls <span class="note">operator approval required</span></h2>
+      <div class="body" id="experiments"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Kill switch</h2>
+      <div class="body">
+        <p style="margin:0 0 10px;color:var(--text-dim);font-size:12.5px">
+          Writes a <code>STOP</code> file that the running script polls for. It is plain file
+          and timer logic in the experiment itself &mdash; it does not depend on this dashboard,
+          the backend, or any model staying up.
+        </p>
+        <div class="controls">
+          <button class="stop" id="btn-stop">Engage kill switch</button>
+          <button id="btn-clear">Clear STOP file</button>
+          <span id="stop-state" class="pill">unknown</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Experiment timeline</h2>
+      <div class="body">
+        <ul class="timeline" id="timeline"></ul>
+        <div class="log" id="log">No experiment has been started from this dashboard yet.</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Inferred topology risk <span class="note">never injected</span></h2>
+      <div class="body" id="topology"><p class="empty">No dependency map loaded.</p></div>
+    </section>
+
+    <section class="panel">
+      <h2>Coverage gaps</h2>
+      <div class="body" id="gaps"><p class="empty">No assessment yet.</p></div>
+    </section>
+
+  </div>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

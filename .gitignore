@@ -272,3 +272,7 @@ dotnet-install.sh
 
 # Generated chaos-experiment evidence - keep selected runs out of band
 /chaos-scripts/results/
+
+# Dashboard build output
+/dashboard/bin/
+/dashboard/obj/
