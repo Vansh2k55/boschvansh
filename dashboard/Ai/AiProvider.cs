@@ -102,3 +102,74 @@ public interface IAiProvider
     Task<(bool Ok, string? Content, string? Error)> CompleteAsync(
         string systemPrompt, string userPrompt, string schemaName, JsonNode jsonSchema, CancellationToken ct);
 }
+
+/// <summary>Which providers the operator has authorised for this installation.</summary>
+public enum AiMode
+{
+    /// <summary>Local only. No request is ever sent to Groq.</summary>
+    Ollama,
+
+    /// <summary>Cloud only. Never silently falls back to the local model.</summary>
+    Groq,
+
+    /// <summary>Groq first, Ollama if it fails, deterministic if both do.</summary>
+    Auto,
+}
+
+/// <summary>
+/// Persists the selected mode server-side.
+/// </summary>
+/// <remarks>
+/// Server-side on purpose. The mode decides whether a request may leave the
+/// machine, so it is not something a browser gets to assert. Only the mode is
+/// stored - never the API key, which stays in the environment.
+/// </remarks>
+public sealed class AiModeStore
+{
+    private readonly string _path;
+    private readonly Lock _gate = new();
+    private AiMode _mode;
+
+    public AiModeStore(string path, AiMode fallback = AiMode.Auto)
+    {
+        _path = path;
+        _mode = fallback;
+        try
+        {
+            if (File.Exists(_path))
+            {
+                var text = File.ReadAllText(_path).TrimStart('﻿');
+                var stored = JsonNode.Parse(text)?["mode"]?.GetValue<string>();
+                if (Enum.TryParse<AiMode>(stored, ignoreCase: true, out var parsed)) _mode = parsed;
+            }
+        }
+        catch (Exception)
+        {
+            // A corrupt or unreadable settings file must not stop the dashboard
+            // starting; the fallback mode is a safe default.
+        }
+    }
+
+    public AiMode Current
+    {
+        get { lock (_gate) { return _mode; } }
+    }
+
+    public void Set(AiMode mode)
+    {
+        lock (_gate)
+        {
+            _mode = mode;
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+                File.WriteAllText(_path, new JsonObject { ["mode"] = mode.ToString() }.ToJsonString());
+            }
+            catch (IOException)
+            {
+                // Losing persistence is not worth failing the request over; the
+                // mode still applies for this process.
+            }
+        }
+    }
+}

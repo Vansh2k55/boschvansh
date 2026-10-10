@@ -17,8 +17,47 @@ namespace Pitstop.ResilienceDashboard;
 /// Every attempt is recorded so the UI can show what was tried and why it moved
 /// on, and so the provider that actually answered is always attributable.
 /// </remarks>
-public sealed class AiProviderRouter(GroqClient groq, OllamaClient ollama)
+public sealed class AiProviderRouter(GroqClient groq, OllamaClient ollama, AiModeStore modeStore)
 {
+    public AiMode Mode => modeStore.Current;
+
+    /// <summary>
+    /// The providers this mode permits, in order. This is the only place that
+    /// decides whether a request may leave the machine.
+    /// </summary>
+    /// <remarks>
+    /// Ollama-only must never produce a Groq request and Groq-only must never
+    /// silently fall back, because an operator who picked a mode is making a
+    /// statement about where their evidence is allowed to go.
+    /// </remarks>
+    private (List<IAiProvider> Providers, List<ProviderAttempt> Skipped) PlanFor(AiMode mode)
+    {
+        var providers = new List<IAiProvider>();
+        var skipped = new List<ProviderAttempt>();
+
+        switch (mode)
+        {
+            case AiMode.Ollama:
+                providers.Add(ollama);
+                skipped.Add(new ProviderAttempt(groq.Name, false, "Skipped: mode is Ollama-only."));
+                break;
+
+            case AiMode.Groq:
+                if (GroqClient.IsConfigured) providers.Add(groq);
+                else skipped.Add(new ProviderAttempt(groq.Name, false, "GROQ_API_KEY is not set."));
+                skipped.Add(new ProviderAttempt(ollama.Name, false, "Skipped: mode is Groq-only, no fallback."));
+                break;
+
+            default:
+                if (GroqClient.IsConfigured) providers.Add(groq);
+                else skipped.Add(new ProviderAttempt(groq.Name, false, "Skipped: GROQ_API_KEY is not set."));
+                providers.Add(ollama);
+                break;
+        }
+
+        return (providers, skipped);
+    }
+
     private static readonly JsonSerializerOptions ReadOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -28,25 +67,23 @@ public sealed class AiProviderRouter(GroqClient groq, OllamaClient ollama)
     public async Task<IReadOnlyList<ProviderStatus>> GetStatusAsync(CancellationToken ct) =>
         [await groq.GetStatusAsync(ct), await ollama.GetStatusAsync(ct)];
 
-    /// <summary>Which provider would be used right now, or null if none can be.</summary>
+    /// <summary>Which provider would answer right now under the current mode, or null.</summary>
     public async Task<string?> ResolveActiveProviderAsync(CancellationToken ct)
     {
-        if (GroqClient.IsConfigured) return groq.Name;
-        var local = await ollama.GetStatusAsync(ct);
-        return local.Available ? ollama.Name : null;
+        var (providers, _) = PlanFor(modeStore.Current);
+        foreach (var provider in providers)
+        {
+            if (provider is GroqClient) return groq.Name;
+            var status = await provider.GetStatusAsync(ct);
+            if (status.Available) return provider.Name;
+        }
+        return null;
     }
 
     public async Task<AiResult<T>> CompleteAsync<T>(
         string systemPrompt, string userPrompt, string schemaName, JsonNode jsonSchema, CancellationToken ct)
     {
-        var attempts = new List<ProviderAttempt>();
-
-        // Only send to the cloud when a key exists. Without one we do not call
-        // Groq at all rather than calling it and collecting a 401.
-        var ordered = new List<IAiProvider>();
-        if (GroqClient.IsConfigured) ordered.Add(groq);
-        else attempts.Add(new ProviderAttempt(groq.Name, false, "Skipped: GROQ_API_KEY is not set."));
-        ordered.Add(ollama);
+        var (ordered, attempts) = PlanFor(modeStore.Current);
 
         foreach (var provider in ordered)
         {
@@ -85,7 +122,8 @@ public sealed class AiProviderRouter(GroqClient groq, OllamaClient ollama)
 
         var summary = string.Join(" | ", attempts.Select(a => $"{a.Provider}: {a.Error}"));
         return AiResult<T>.Fail(
-            $"No AI provider could answer. {summary}. The deterministic assessment is unaffected.",
+            $"No AI provider could answer in {modeStore.Current} mode. {summary}. " +
+            "The deterministic assessment is unaffected.",
             attempts);
     }
 }

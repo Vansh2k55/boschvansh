@@ -29,6 +29,10 @@ async function refreshAiStatus() {
         <span style="font-family:var(--mono)">${p.model}</span></span>`;
     }).join('');
 
+    // Reflect the server's mode rather than assuming the select is authoritative;
+    // the server decides, and another tab may have changed it.
+    if (s.mode && el('ai-mode').value !== s.mode) el('ai-mode').value = s.mode;
+
     el('btn-recommend').disabled = !active;
     el('btn-explain').disabled = !active;
   } catch {
@@ -203,5 +207,20 @@ function renderExplanation(e, runId, provider) {
         : ''}
     </div>`;
 }
+
+el('ai-mode').addEventListener('change', async (event) => {
+  const mode = event.target.value;
+  try {
+    await api('/api/ai/mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+    // A mode change can change which provider is reachable, so re-read status.
+    await refreshAiStatus();
+  } catch (err) {
+    el('ai-status').textContent = `could not set mode: ${err.message}`;
+  }
+});
 
 refreshAiStatus();

@@ -18,22 +18,27 @@ using System.Text.Json.Nodes;
 using Pitstop.ResilienceDashboard;
 
 var builder = WebApplication.CreateBuilder(args);
-var aiOptions = AiOptions.Load(builder.Configuration);
-builder.Services.AddSingleton(aiOptions);
-// Per-request timeouts are enforced inside each provider, so the HttpClient
-// timeout is only a backstop well above both.
-builder.Services.AddHttpClient<GroqClient>(c => c.Timeout = TimeSpan.FromSeconds(300));
-builder.Services.AddHttpClient<OllamaClient>(c => c.Timeout = TimeSpan.FromSeconds(300));
-builder.Services.AddScoped<AiProviderRouter>();
-var app = builder.Build();
 
-var repoRoot = FindRepoRoot(app.Environment.ContentRootPath)
+// Resolved before the container is built so registrations can depend on it.
+var repoRoot = FindRepoRoot(builder.Environment.ContentRootPath)
     ?? throw new InvalidOperationException("Could not locate the repository root (no chaos-scripts directory found).");
 var chaosScripts = Path.Combine(repoRoot, "chaos-scripts");
 var composeFile = Path.Combine(repoRoot, "src", "docker-compose.yml");
 var stopFile = Path.Combine(chaosScripts, "STOP");
 var resultsDir = Path.Combine(chaosScripts, "results");
 var auditLog = Path.Combine(resultsDir, "audit.jsonl");
+
+var aiOptions = AiOptions.Load(builder.Configuration);
+builder.Services.AddSingleton(aiOptions);
+// Per-request timeouts are enforced inside each provider, so the HttpClient
+// timeout is only a backstop well above both.
+builder.Services.AddHttpClient<GroqClient>(c => c.Timeout = TimeSpan.FromSeconds(300));
+builder.Services.AddHttpClient<OllamaClient>(c => c.Timeout = TimeSpan.FromSeconds(300));
+// Mode is persisted server-side: it decides whether a request may leave the
+// machine, so it is not something a browser asserts.
+builder.Services.AddSingleton(_ => new AiModeStore(Path.Combine(resultsDir, "ai-settings.json")));
+builder.Services.AddScoped<AiProviderRouter>();
+var app = builder.Build();
 
 // Experiments live in ExperimentCatalog so the runner and the AI-recommendation
 // validator can never drift apart on what is permitted.
@@ -107,10 +112,23 @@ app.MapGet("/api/ai/status", async (AiProviderRouter router, CancellationToken c
     {
         // Whether a key exists, never the key itself.
         providers,
+        mode = router.Mode.ToString(),
+        modes = Enum.GetNames<AiMode>(),
         activeProvider = await router.ResolveActiveProviderAsync(ct),
         configured = providers.Any(p => p.Available),
         note = "Deterministic scoring and the kill switch do not depend on any of these.",
     }, jsonOptions);
+});
+
+app.MapPost("/api/ai/mode", (ModeRequest request, AiModeStore store) =>
+{
+    if (!Enum.TryParse<AiMode>(request.Mode, ignoreCase: true, out var mode))
+    {
+        return Results.BadRequest(new { error = $"Unknown mode. Permitted: {string.Join(", ", Enum.GetNames<AiMode>())}." });
+    }
+    store.Set(mode);
+    AppendAudit(new { timestampUtc = DateTime.UtcNow, action = "ai.mode.changed", mode = mode.ToString() });
+    return Results.Ok(new { mode = mode.ToString() });
 });
 
 app.MapPost("/api/ai/recommend", async (AiProviderRouter router, CancellationToken ct) =>
@@ -497,6 +515,7 @@ void AppendAudit(object entry)
 record ServiceStatus(string Name, bool Running, string State, string Health);
 record ModuleProbe(string Name, int? StatusCode, bool Healthy, double LatencyMs, bool OfflinePage, string? Error);
 record RunRequest(string? Experiment, int? DurationSeconds, bool Approved, string? ApprovedBy);
+record ModeRequest(string? Mode);
 
 sealed class RunState
 {

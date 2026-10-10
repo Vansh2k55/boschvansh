@@ -94,6 +94,13 @@
           experiment, choose a target, or widen a duration. It recommends; you approve.
         </p>
         <div class="controls">
+          <label style="font-size:12px;color:var(--text-faint)">Provider mode
+            <select id="ai-mode">
+              <option value="Auto">Auto: Groq &rarr; Ollama</option>
+              <option value="Groq">Groq only</option>
+              <option value="Ollama">Ollama only</option>
+            </select>
+          </label>
           <button id="btn-recommend">AI Recommend Experiment</button>
         </div>
         <div id="provider-status" class="legend"></div>
