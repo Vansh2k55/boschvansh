@@ -51,6 +51,15 @@ public static class AiPrompts
 
         Rules:
         - Every claim must trace to a value in the evidence you were given.
+        - Cite evidence as a readable statement that quotes the actual value,
+          for example "Workshop latency reached 5034ms during the fault" or
+          "DivergenceDetected was true". Never answer with a JSON path such as
+          DeterministicAnalysis.Dimensions[1].Earned - a path is not an explanation.
+        - When you cite evidence, write it as a readable statement that quotes the
+          actual value, for example "Workshop latency reached 5034ms during the
+          fault" or "DivergenceDetected was true". Do NOT answer with a JSON path
+          such as DeterministicAnalysis.Dimensions[1].Earned - a path is not an
+          explanation.
         - If the evidence does not support a conclusion, say so plainly and mark
           it as unsupported rather than presenting a guess as a fact.
         - Do not invent metrics, numbers, percentages or timings. If you want to
@@ -114,7 +123,7 @@ public static class AiPrompts
             ["expectedVsActual"] = Str("Where observed behaviour matched expectations and where it did not."),
             ["weaknesses"] = StrArray("Resilience weaknesses this run exposed."),
             ["recommendations"] = StrArray("Prioritised, concrete remediation steps."),
-            ["evidenceCited"] = StrArray("The specific evidence fields or values your claims rest on."),
+            ["evidenceCited"] = StrArray("Readable statements quoting the actual values your claims rest on. Not JSON paths."),
             ["unsupported"] = StrArray("Anything you suspect but the evidence does not establish. Empty if none."),
         },
         ["required"] = new JsonArray(

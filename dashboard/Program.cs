@@ -264,7 +264,14 @@ app.MapPost("/api/ai/explain/{runId}", async (string runId, AiProviderRouter rou
     }
 
     AppendAudit(new { timestampUtc = DateTime.UtcNow, action = "ai.explain", runId, provider = result.Provider });
-    return Results.Json(new { ok = true, provider = result.Provider, attempts = result.Attempts, explanation = result.Value }, jsonOptions);
+
+    // Models cite the JSON path they read. Resolve those against the evidence so
+    // the operator sees the value, not the path, and drop duplicates.
+    var explanation = result.Value! with
+    {
+        EvidenceCited = [.. EvidenceFormatter.ResolveAll(result.Value.EvidenceCited, evidence)],
+    };
+    return Results.Json(new { ok = true, provider = result.Provider, attempts = result.Attempts, explanation }, jsonOptions);
 });
 
 // ---- the only two state-changing endpoints --------------------------------
