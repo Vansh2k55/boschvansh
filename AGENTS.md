@@ -22,8 +22,10 @@ chaos-scripts/   Experiments, the dependency mapper and the scorer. Our code.
   dependency-overlay.json  Hand-curated RabbitMQ event topology
   kill-service.ps1         Workshop API crash experiment
   kill-rabbitmq.ps1        Broker outage experiment (needs -Execute to inject)
-  analyze.ps1              Deterministic resilience scorer (read-only, no network)
-  results/                 Generated evidence, gitignored
+  analyze.ps1              Deterministic resilience agent (read-only, no network)
+  test-publish-integrity.ps1  Regression test for the write/event divergence
+  results/                 Generated evidence and audit.jsonl, gitignored
+dashboard/       Live resilience console (ASP.NET Core, no package references)
 docs/            Plan, status, handover, team tasks, generated map, experiment write-ups
 src/             Upstream Pitstop. Change only to fix something genuinely broken.
 ```
@@ -41,7 +43,12 @@ docker compose -f src/docker-compose.yml down        # stop, keep data
 ./chaos-scripts/kill-service.ps1 -DurationSeconds 30        # Workshop API crash
 ./chaos-scripts/kill-rabbitmq.ps1                           # dry run, changes nothing
 ./chaos-scripts/kill-rabbitmq.ps1 -DowntimeSeconds 25 -Execute
-./chaos-scripts/analyze.ps1                                 # score every recorded run
+./chaos-scripts/analyze.ps1                                 # assess every recorded run
+./chaos-scripts/test-publish-integrity.ps1 -Writes 20       # regression test
+```
+
+```bash
+dotnet run --project dashboard/Dashboard.csproj --urls http://localhost:5280
 ```
 
 `docker compose down -v` destroys the `sqlserverdata` volume and every database
@@ -70,6 +77,12 @@ These are the point of the project. Treat them as binding.
    See `docs/AI_ANALYSIS_DESIGN.md`.
 6. **Secrets come from environment variables.** Never commit a key, never print
    one in logs, docs or screenshots.
+
+**`src/Infrastructure.Messaging/` is not compiled into the services.** They
+consume it as a NuGet PackageReference pinned to the published 5.5.0, and no
+Dockerfile copies that source. Editing it changes nothing at runtime - verify
+any change there by rebuilding and observing the container, never by reading
+the diff. See `docs/publish-integrity.md`.
 
 Note: `src/*/appsettings.Production.json` contains hardcoded SQL Server and
 RabbitMQ passwords. That is upstream sample-app code for a throwaway local

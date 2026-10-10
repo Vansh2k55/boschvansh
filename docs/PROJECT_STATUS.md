@@ -96,6 +96,41 @@ From `chaos-scripts/analyze.ps1`, by the published rules in
 The broker outage scoring below the crash is the intended behaviour: a silent
 inconsistency is worse than a visibly broken page.
 
+## Since the merge: agent, dashboard and the integrity finding
+
+**Housekeeping.** PR #1 was already merged (`12a5245`), so nothing was closed -
+there was no open PR. `feature/kill-rabbitmq` had one unique behaviour not on
+`main` (dumping broker status and logs when recovery fails); it was ported in
+`d4685e5` and the branch was then deleted from the remote. `task2-kill-service`
+remains and is safe to delete whenever you want.
+
+**Resilience agent.** `analyze.ps1` now aggregates across both experiments
+instead of rating runs one at a time: per-experiment scores that exclude
+low-confidence runs, a cross-experiment comparison, findings consolidated with
+reproduction-driven confidence, topology risk read from the dependency map and
+labelled inferred rather than observed, and coverage gaps. Current result:
+kill-rabbitmq 70, kill-service 78.
+
+**Dashboard.** ASP.NET Core minimal API at http://localhost:5280 with no package
+references. Live Docker status, live HTTP probes and the evidence files; nothing
+sampled or seeded, and missing values render as "not measured". Allowlisted
+experiments only, integer parameters with bounds, explicit approval, real
+preflight, no overlapping runs, kill switch writes the STOP file the scripts
+poll for, and approvals and outcomes append to `results/audit.jsonl`.
+
+**The integrity finding changed shape.** It is not outage-only. On a healthy
+system 6 of 20 customer registrations (30%) return 500 with the row committed
+and no event published. Root cause is `AddTransient` on the publisher combined
+with an accidentally `async void` `Connect()`, so every request races a
+half-built connection.
+
+**It is not fixed, on purpose.** `src/Infrastructure.Messaging/` is consumed as
+a published NuGet package, so editing it does not change the running system -
+verified by rebuilding and force-recreating the containers and seeing the same
+exception. This also means the earlier `RabbitMQMessageHandler` correction was
+inert at runtime. Three options with trade-offs are in
+`docs/publish-integrity.md`; the decision is Saurabh's.
+
 ## Open work
 
 **P2 — designed, partially built.** `docs/AI_ANALYSIS_DESIGN.md` sets out the
