@@ -1,4 +1,4 @@
-﻿"""Opt-in Docker recovery audit. Never accepts an existing target/container.
+"""Opt-in Docker recovery audit. Never accepts an existing target/container.
 
 Uses the checked-in cleanup functions and finally block, not a full Pitstop run.
 HTTP serves a synthetic payload. No application/database recovery is implied.
@@ -178,4 +178,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
