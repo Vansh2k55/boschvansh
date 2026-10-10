@@ -78,6 +78,7 @@ foreach ($model in $Models) {
 
     Write-Host "`n=== $model ==="
     $status = $null; $upstream = $null; $parsed = $false; $experiment = $null
+    $missing = @()
 
     try {
         $response = Invoke-WebRequest 'https://api.groq.com/openai/v1/chat/completions' `
@@ -90,6 +91,16 @@ foreach ($model in $Models) {
         $recommendation = $content | ConvertFrom-Json
         $parsed = $true
         $experiment = $recommendation.experiment
+
+        # Parsing only proves it is JSON. The schema's own `required` list is
+        # what the dashboard depends on, so check the returned object against
+        # it rather than labelling any parseable response schema-valid.
+        # $schema.recommendation IS the schema, so `required` is at its top
+        # level. Reaching one level deeper would hit the discoveries item's own
+        # `required` - the same mistake that once produced a false positive.
+        $required = @($schema.recommendation.required)
+        $returned = @($recommendation.PSObject.Properties.Name)
+        $missing = @($required | Where-Object { $_ -notin $returned })
     }
     catch {
         $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { $null }
@@ -102,18 +113,30 @@ foreach ($model in $Models) {
     }
 
     Write-Host "  status            : $status"
-    Write-Host "  schema-valid JSON : $parsed"
+    Write-Host "  parsed as JSON    : $parsed"
+    Write-Host "  required fields   : $(if (-not $parsed) { 'n/a - nothing to check' } elseif ($missing.Count -eq 0) { 'all present' } else { "MISSING $($missing -join ', ')" })"
     if ($experiment) { Write-Host "  experiment chosen : $experiment" }
     if ($upstream) { Write-Host "  upstream said     : $upstream" }
 
-    $results += [pscustomobject]@{ Model = $model; Status = $status; Parsed = $parsed; Upstream = $upstream }
+    $results += [pscustomobject]@{
+        Model = $model; Status = $status; Parsed = $parsed
+        MissingFields = $missing; Conforms = ($parsed -and $missing.Count -eq 0)
+        Upstream = $upstream
+    }
 }
 
 Write-Host "`n=== VERDICT ==="
-$working = @($results | Where-Object { $_.Parsed })
+$working = @($results | Where-Object { $_.Conforms })
+foreach ($r in $results | Where-Object { $_.Parsed -and -not $_.Conforms }) {
+    Write-Host "$($r.Model): returned JSON but omitted $($r.MissingFields -join ', '). Not a pass."
+}
 if ($working.Count -gt 0) {
-    Write-Host "Groq live verification PASSED for: $(($working.Model) -join ', ')"
+    Write-Host "Groq returned conforming output for: $(($working.Model) -join ', ')"
     Write-Host 'Set the default with GROQ_MODEL, or update dashboard/appsettings.json.'
+    Write-Host ''
+    Write-Host 'This is the standalone provider path only. Groq is not verified'
+    Write-Host 'end-to-end until a real dashboard recommendation reports'
+    Write-Host 'provider: groq - this check bypasses the application.'
     exit 0
 }
 

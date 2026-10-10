@@ -1,9 +1,9 @@
 # Experiment catalog: coverage and roadmap
 
-## Why only three today
+## Why only four today
 
-Nothing is throttling the catalog: `ExperimentCatalog` holds three entries
-because three are all that have met the eight requirements in
+Nothing is throttling the catalog: `ExperimentCatalog` holds four entries
+because four are all that have met the eight requirements in
 `docs/AI_EXPERIMENT_DESIGN.md`. Registration is the last step, not the first —
 an experiment becomes executable once its cleanup is proven, not when a script
 exists. Two more scripts exist today and are surfaced as
@@ -16,13 +16,13 @@ exists. Two more scripts exist today and are surfaced as
 | `kill-service` | Process gone, connection refused | `docker kill` | Blast-radius containment behind a single API |
 | `kill-rabbitmq` | Shared async dependency outage | `docker kill` + `stop` | Read paths survive; the **write path loses events** |
 | `network-delay` | Uniform added latency | `tc netem delay` via sidecar | Graceful degradation — slow but serving |
+| `packet-loss` | Partial, non-deterministic loss | `tc netem loss` via sidecar | Erratic latency under retransmit — most requests still served |
 
-**The gap.** All three are binary-ish and infrastructure-level: a thing is gone,
-or everything is uniformly slower. Three common production failure modes are
+**The gap.** `packet-loss` closed the partial-failure gap on 2026-10-11. What
+remains is still binary-ish and infrastructure-level: a thing is gone, or
+everything is uniformly slower. Two common production failure modes are
 untested:
 
-- **Partial, non-deterministic failure.** Some requests fail, most succeed —
-  the case retries and idempotency are supposed to handle.
 - **A synchronous shared dependency failing.** `sqlserver` has six dependents
   and is the highest inferred topology risk, and has never been injected.
 - **A hung process.** Connections accepted and never answered, which exhausts
@@ -33,7 +33,7 @@ untested:
 Each against the ten questions in the brief. Only distinct failure *mechanisms*
 count — a different delay value is not a new experiment.
 
-### 1. `packet-loss` — recommended first
+### 1. `packet-loss` — DONE, registered and executable
 
 1. **Failure mode:** a percentage of packets dropped, so some requests fail or
    stall while others succeed.
@@ -52,10 +52,30 @@ count — a different delay value is not a new experiment.
    proven for `network-delay` under a hard parent kill.
 9. **Tests needed:** registry bounds, loss-percentage bounds, and the disposable
    apply/verify/remove cycle.
-10. **Architecture:** no change. Same sidecar, same `DelayParameter` shape
-    generalised to a second numeric parameter.
+10. **Architecture:** no change. Same sidecar. The delay-only second parameter
+    was generalised into a labelled, unit-carrying `IntensityParameter`, so loss
+    reuses it rather than adding a parallel mechanism.
 
 **Risk: low. Value: high.** Reuses the one cleanup path already proven hardest.
+
+**Evidence, 2026-10-11.** Registered after the proof, not before:
+
+- *Disposable cycle:* `qdisc noqueue` → `netem 28: ... loss 20%` → `noqueue`.
+  The apply step's verification matched `loss 20%`, so a silently ineffective
+  qdisc cannot pass as injected.
+- *Live bounded run* (15s, 20% loss): the Workshop module produced a genuinely
+  distinct signature — `862.9, 437.7, 1952.5, 649.3, 239.3, 440.3, 13.5, 444,
+  649.9ms`, erratic rather than `network-delay`'s uniform ~3200–5000ms.
+  Customer and Vehicle stayed at ~8–18ms, so the blast radius held.
+- *Cleanup:* `Shaping removed and verified: True`, watchdog container removed,
+  target back to `qdisc noqueue` — re-confirmed after the run.
+- *Honesty:* `0/9` probes failed at 20% configured loss. The report therefore
+  carries `LossMeasurementCaveat`: the configured drop percentage is **not** an
+  observed request-failure rate, because TCP retransmits absorb most of it. The
+  latency spread is what was actually measured.
+- *Tests:* 170 passing, 12 specific to `packet-loss` — registry bounds, the 40%
+  cap, out-of-range loss rejected rather than clamped, approval still required,
+  a model unable to retarget it, and the runner reached only through the fake.
 
 ### 2. `kill-database` — recommended second
 
@@ -120,20 +140,22 @@ meaningful.
 
 ## Order of work
 
-1. `packet-loss` — lowest risk, reuses the proven qdisc lifecycle.
-2. `kill-database` — highest value, proven mechanism, tighter bounds.
+1. ~~`packet-loss`~~ — **done**, evidence above.
+2. `kill-database` — highest value, proven mechanism, tighter bounds. Next.
 3. `pause-service` — needs the unpause watchdog first.
 4. `cpu-pressure` — only if a load generator makes the effect measurable.
 
-Reaching five executable types means the first two. Six means the third.
+Four are executable. Reaching five means `kill-database`. Six means
+`pause-service`, and that stays blocked until an unpause watchdog exists and
+has been tested — it is not made executable to reach a number.
 
 ## Status
 
 | Experiment | State |
 | --- | --- |
 | `kill-service`, `kill-rabbitmq`, `network-delay` | **Executable**, cleanup verified |
-| `packet-loss` | **Planned** — next |
-| `kill-database` | **Planned** |
+| `packet-loss` | **Executable**, cleanup verified 2026-10-11 |
+| `kill-database` | **Planned** — next |
 | `pause-customer-api`, `pause-vehicle-api` | **Prepared, not executable** — no sandbox guard, no independent recovery |
 | `cpu-pressure` | **Candidate**, needs a load generator |
 | Memory pressure, network partition, dependency timeout | **Not planned**, reasons above |

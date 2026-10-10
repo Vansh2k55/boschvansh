@@ -84,10 +84,12 @@ app.MapGet("/api/state", async (CancellationToken ct) => Results.Json(new
         minDuration = e.Value.MinDuration,
         maxDuration = e.Value.MaxDuration,
         defaultDuration = e.Value.DefaultDuration,
-        supportsDelay = e.Value.SupportsDelay,
-        minDelayMs = e.Value.MinDelayMs,
-        maxDelayMs = e.Value.MaxDelayMs,
-        defaultDelayMs = e.Value.DefaultDelayMs,
+        supportsIntensity = e.Value.SupportsIntensity,
+        minIntensity = e.Value.MinIntensity,
+        maxIntensity = e.Value.MaxIntensity,
+        defaultIntensity = e.Value.DefaultIntensity,
+        intensityLabel = e.Value.IntensityLabel,
+        intensityUnit = e.Value.IntensityUnit,
     }),
     // Display only. These are not in ExperimentCatalog, so the run endpoint
     // refuses them like any other unregistered name.
@@ -326,18 +328,18 @@ app.MapPost("/api/experiments/run", async (RunRequest request, IExperimentRunner
 
     // A delay is only meaningful for an experiment that shapes traffic, and is
     // bounded by the registry exactly as the duration is.
-    int? delay = null;
-    if (spec.SupportsDelay)
+    int? intensity = null;
+    if (spec.SupportsIntensity)
     {
-        delay = request.DelayMilliseconds ?? spec.DefaultDelayMs;
-        if (delay < spec.MinDelayMs || delay > spec.MaxDelayMs)
+        intensity = request.Intensity ?? spec.DefaultIntensity;
+        if (intensity < spec.MinIntensity || intensity > spec.MaxIntensity)
         {
-            return Results.BadRequest(new { error = $"Delay must be between {spec.MinDelayMs} and {spec.MaxDelayMs} ms." });
+            return Results.BadRequest(new { error = $"{spec.IntensityLabel} must be between {spec.MinIntensity} and {spec.MaxIntensity}{spec.IntensityUnit}." });
         }
     }
-    else if (request.DelayMilliseconds is not null)
+    else if (request.Intensity is not null)
     {
-        return Results.BadRequest(new { error = $"'{spec.Name}' takes no delay parameter." });
+        return Results.BadRequest(new { error = $"'{spec.Name}' takes no {nameof(RunRequest.Intensity).ToLowerInvariant()} parameter." });
     }
 
     if (File.Exists(stopFile))
@@ -352,12 +354,12 @@ app.MapPost("/api/experiments/run", async (RunRequest request, IExperimentRunner
         action = "experiment.approved",
         experiment = request.Experiment,
         durationSeconds = duration,
-        delayMilliseconds = delay,
+        intensity = intensity,
         approvedBy = string.IsNullOrWhiteSpace(request.ApprovedBy) ? "dashboard operator" : request.ApprovedBy,
     });
 
-    _ = Task.Run(() => runner.RunAsync(spec, duration, delay), CancellationToken.None);
-    return Results.Accepted($"/api/state", new { started = true, experiment = request.Experiment, durationSeconds = duration, delayMilliseconds = delay });
+    _ = Task.Run(() => runner.RunAsync(spec, duration, intensity), CancellationToken.None);
+    return Results.Accepted($"/api/state", new { started = true, experiment = request.Experiment, durationSeconds = duration, intensity = intensity });
 });
 
 app.MapPost("/api/experiments/stop", () =>
@@ -538,7 +540,7 @@ void AppendAudit(object entry)
 
 record ServiceStatus(string Name, bool Running, string State, string Health);
 record ModuleProbe(string Name, int? StatusCode, bool Healthy, double LatencyMs, bool OfflinePage, string? Error);
-record RunRequest(string? Experiment, int? DurationSeconds, bool Approved, string? ApprovedBy, int? DelayMilliseconds = null);
+record RunRequest(string? Experiment, int? DurationSeconds, bool Approved, string? ApprovedBy, int? Intensity = null);
 record ModeRequest(string? Mode);
 
 public sealed class RunState

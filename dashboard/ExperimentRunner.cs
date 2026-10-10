@@ -19,7 +19,7 @@ namespace Pitstop.ResilienceDashboard;
 /// </remarks>
 public interface IExperimentRunner
 {
-    Task RunAsync(ExperimentSpec spec, int durationSeconds, int? delayMilliseconds);
+    Task RunAsync(ExperimentSpec spec, int durationSeconds, int? intensity);
 }
 
 /// <summary>Runs a registered experiment's PowerShell script as a child process.</summary>
@@ -34,7 +34,7 @@ public sealed class PowerShellExperimentRunner(
     RunState runState,
     Action<object> audit) : IExperimentRunner
 {
-    public async Task RunAsync(ExperimentSpec spec, int durationSeconds, int? delayMilliseconds)
+    public async Task RunAsync(ExperimentSpec spec, int durationSeconds, int? intensity)
     {
         var scriptPath = Path.Combine(chaosScripts, spec.Script);
         var args = new List<string>
@@ -42,10 +42,10 @@ public sealed class PowerShellExperimentRunner(
             "-NoProfile", "-NonInteractive", "-File", scriptPath,
             spec.DurationParameter, durationSeconds.ToString(),
         };
-        if (spec.SupportsDelay && delayMilliseconds is { } ms)
+        if (spec.SupportsIntensity && intensity is { } value)
         {
-            args.Add(spec.DelayParameter!);
-            args.Add(ms.ToString());
+            args.Add(spec.IntensityParameter!);
+            args.Add(value.ToString());
         }
         if (spec.RequiresExecuteFlag) args.Add("-Execute");
 
@@ -55,7 +55,7 @@ public sealed class PowerShellExperimentRunner(
             action = "experiment.started",
             experiment = spec.Script,
             durationSeconds,
-            delayMilliseconds,
+            intensity,
         });
 
         try

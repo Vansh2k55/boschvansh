@@ -20,10 +20,10 @@ public class NetworkDelayRegistrationTests
         Assert.Equal("workshopmanagementapi", spec.Target);
         Assert.Equal(5, spec.MinDuration);
         Assert.Equal(60, spec.MaxDuration);
-        Assert.True(spec.SupportsDelay);
-        Assert.Equal(50, spec.MinDelayMs);
-        Assert.Equal(2000, spec.MaxDelayMs);
-        Assert.InRange(spec.DefaultDelayMs, spec.MinDelayMs, spec.MaxDelayMs);
+        Assert.True(spec.SupportsIntensity);
+        Assert.Equal(50, spec.MinIntensity);
+        Assert.Equal(2000, spec.MaxIntensity);
+        Assert.InRange(spec.DefaultIntensity, spec.MinIntensity, spec.MaxIntensity);
     }
 
     [Fact]
@@ -38,11 +38,12 @@ public class NetworkDelayRegistrationTests
     }
 
     [Fact]
-    public void Only_the_traffic_shaping_experiment_takes_a_delay()
+    public void Only_the_traffic_shaping_experiments_take_an_intensity()
     {
-        Assert.False(ExperimentCatalog.All["kill-service"].SupportsDelay);
-        Assert.False(ExperimentCatalog.All["kill-rabbitmq"].SupportsDelay);
-        Assert.True(ExperimentCatalog.All["network-delay"].SupportsDelay);
+        Assert.False(ExperimentCatalog.All["kill-service"].SupportsIntensity);
+        Assert.False(ExperimentCatalog.All["kill-rabbitmq"].SupportsIntensity);
+        Assert.True(ExperimentCatalog.All["network-delay"].SupportsIntensity);
+        Assert.True(ExperimentCatalog.All["packet-loss"].SupportsIntensity);
     }
 
     [Fact]
@@ -53,7 +54,7 @@ public class NetworkDelayRegistrationTests
             Assert.True(spec.MaxDuration <= 120, $"{spec.Name} may run for {spec.MaxDuration}s.");
             Assert.True(spec.MinDuration > 0, $"{spec.Name} has no lower bound.");
         }
-        Assert.Equal(3, ExperimentCatalog.All.Count);
+        Assert.Equal(4, ExperimentCatalog.All.Count);
     }
 
     [Fact]
@@ -123,8 +124,8 @@ public class NetworkDelayEndpointTests : IDisposable
 
         var delay = state!["experiments"]!.AsArray()
             .First(e => e!["name"]!.GetValue<string>() == "network-delay");
-        Assert.True(delay!["supportsDelay"]!.GetValue<bool>());
-        Assert.Equal(2000, delay["maxDelayMs"]!.GetValue<int>());
+        Assert.True(delay!["supportsIntensity"]!.GetValue<bool>());
+        Assert.Equal(2000, delay["maxIntensity"]!.GetValue<int>());
     }
 
     [Theory]
@@ -141,14 +142,14 @@ public class NetworkDelayEndpointTests : IDisposable
         {
             experiment = "network-delay",
             durationSeconds = 20,
-            delayMilliseconds = delay,
+            intensity = delay,
             approved = true,
             approvedBy = "operator",
         });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonNode>();
-        Assert.Contains("Delay must be between", body!["error"]!.GetValue<string>());
+        Assert.Contains("must be between", body!["error"]!.GetValue<string>());
     }
 
     [Fact]
@@ -161,14 +162,14 @@ public class NetworkDelayEndpointTests : IDisposable
         {
             experiment = "kill-service",
             durationSeconds = 20,
-            delayMilliseconds = 400,
+            intensity = 400,
             approved = true,
             approvedBy = "operator",
         });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonNode>();
-        Assert.Contains("takes no delay parameter", body!["error"]!.GetValue<string>());
+        Assert.Contains("takes no intensity parameter", body!["error"]!.GetValue<string>());
     }
 
     [Fact]
@@ -182,7 +183,7 @@ public class NetworkDelayEndpointTests : IDisposable
         {
             experiment = "network-delay",
             durationSeconds = 20,
-            delayMilliseconds = 400,
+            intensity = 400,
             approved = false,
             approvedBy = "operator",
         });
@@ -202,9 +203,9 @@ public class NetworkDelayEndpointTests : IDisposable
         using var app = App();
         using var client = app.CreateClient();
 
-        await client.PostAsJsonAsync("/api/experiments/run", new { experiment = "network-delay", durationSeconds = 20, delayMilliseconds = 9999, approved = true });
+        await client.PostAsJsonAsync("/api/experiments/run", new { experiment = "network-delay", durationSeconds = 20, intensity = 9999, approved = true });
         await client.PostAsJsonAsync("/api/experiments/run", new { experiment = "network-delay", durationSeconds = 999, approved = true });
-        await client.PostAsJsonAsync("/api/experiments/run", new { experiment = "kill-service", durationSeconds = 20, delayMilliseconds = 400, approved = true });
+        await client.PostAsJsonAsync("/api/experiments/run", new { experiment = "kill-service", durationSeconds = 20, intensity = 400, approved = true });
         await client.PostAsJsonAsync("/api/experiments/run", new { experiment = "not-an-experiment", durationSeconds = 20, approved = true });
 
         var state = await (await client.GetAsync("/api/state")).Content.ReadFromJsonAsync<JsonNode>();

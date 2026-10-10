@@ -26,21 +26,27 @@ try {
     $next.Dispose()
     Assert $true 'Lock is usable after release'
 
-    $text = Get-Content (Join-Path $repo 'chaos-scripts/network-delay.ps1') -Raw
-    $cleanup = [regex]::Match($text, '(?ms)^finally \{(.*?)^\}').Groups[1].Value
-    foreach ($mode in @('verified', 'unverified', 'exception')) {
-        $script:removed = @()
-        $watchdog = 'synthetic-watchdog'; $injected = $true; $lock = $null
-        $restored = $false; $removalVerified = $false; $failure = $null; $DurationSeconds = 5
-        function docker { $script:removed += ($args -join ' ') }
-        function Remove-Shaping {
-            if ($mode -eq 'exception') { throw 'synthetic Docker removal error' }
-            return $mode -eq 'verified'
+    # Both traffic-shaping experiments share this cleanup contract, so both get
+    # their real `finally` block executed rather than read.
+    foreach ($shaper in @('network-delay', 'packet-loss')) {
+        $text = Get-Content (Join-Path $repo "chaos-scripts/$shaper.ps1") -Raw
+        $cleanup = [regex]::Match($text, '(?ms)^finally \{(.*?)^\}').Groups[1].Value
+        Assert ($cleanup -match 'Remove-Shaping') "$shaper cleanup block was extracted"
+
+        foreach ($mode in @('verified', 'unverified', 'exception')) {
+            $script:removed = @()
+            $watchdog = 'synthetic-watchdog'; $injected = $true; $lock = $null
+            $restored = $false; $removalVerified = $false; $failure = $null; $DurationSeconds = 5
+            function docker { $script:removed += ($args -join ' ') }
+            function Remove-Shaping {
+                if ($mode -eq 'exception') { throw 'synthetic Docker removal error' }
+                return $mode -eq 'verified'
+            }
+            . ([scriptblock]::Create($cleanup))
+            Assert ($removed.Count -eq $(if ($mode -eq 'verified') { 1 } else { 0 })) "$shaper watchdog retention: $mode"
+            Assert ($restored -eq ($mode -eq 'verified')) "$shaper must not declare recovery: $mode"
+            if ($mode -eq 'exception') { Assert ($failure -like 'Removal failed:*') "$shaper cleanup failure stays visible" }
         }
-        . ([scriptblock]::Create($cleanup))
-        Assert ($removed.Count -eq $(if ($mode -eq 'verified') { 1 } else { 0 })) "Watchdog retention: $mode"
-        Assert ($restored -eq ($mode -eq 'verified')) "Recovery must not be declared: $mode"
-        if ($mode -eq 'exception') { Assert ($failure -like 'Removal failed:*') 'Cleanup failure stays visible' }
     }
 
     # Execute the existing RabbitMQ fault-loop with synthetic telemetry. This

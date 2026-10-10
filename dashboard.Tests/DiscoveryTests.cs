@@ -198,7 +198,7 @@ public class DiscoveryExecutionBoundaryTests : IDisposable
 
         Assert.DoesNotContain(state!["experiments"]!.AsArray(),
             e => e!["name"]!.GetValue<string>().Contains("database", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(3, state["experiments"]!.AsArray().Count);
+        Assert.Equal(4, state["experiments"]!.AsArray().Count);
     }
 
     [Fact]

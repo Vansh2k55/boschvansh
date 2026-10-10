@@ -19,7 +19,7 @@ public class PreparedExperimentsTests
         {
             Assert.False(ExperimentCatalog.TryGet(prepared, out _), prepared);
         }
-        Assert.Equal(3, ExperimentCatalog.All.Count);
+        Assert.Equal(4, ExperimentCatalog.All.Count);
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class PreparedExperimentExecutionBoundaryTests : IDisposable
 
         var state = await (await client.GetAsync("/api/state")).Content.ReadFromJsonAsync<JsonNode>();
 
-        Assert.Equal(3, state!["experiments"]!.AsArray().Count);
+        Assert.Equal(4, state!["experiments"]!.AsArray().Count);
         Assert.Equal(2, state["preparedExperiments"]!.AsArray().Count);
     }
 

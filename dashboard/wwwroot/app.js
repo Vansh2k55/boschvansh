@@ -291,8 +291,8 @@ function renderExperiments() {
         <label style="font-size:12px;color:var(--text-faint)">Duration
           <input type="number" min="${e.minDuration}" max="${e.maxDuration}" value="${e.defaultDuration}" id="dur-${e.name}">
         </label>
-        ${e.supportsDelay ? `<label style="font-size:12px;color:var(--text-faint)">Delay ms
-          <input type="number" min="${e.minDelayMs}" max="${e.maxDelayMs}" value="${e.defaultDelayMs}" id="delay-${e.name}">
+        ${e.supportsIntensity ? `<label style="font-size:12px;color:var(--text-faint)">${e.intensityLabel} ${e.intensityUnit}
+          <input type="number" min="${e.minIntensity}" max="${e.maxIntensity}" value="${e.defaultIntensity}" id="intensity-${e.name}">
         </label>` : ''}
         <button class="danger" data-run="${e.name}" ${running ? 'disabled' : ''}>Approve &amp; inject</button>
         <button data-preflight="${e.name}">Preflight</button>
@@ -326,8 +326,8 @@ async function approveAndRun(name) {
   const duration = Number(el(`dur-${name}`).value);
   // Only sent for an experiment the registry says takes one; the server
   // rejects a delay on anything else.
-  const delayInput = exp.supportsDelay ? el(`delay-${name}`) : null;
-  const delayMilliseconds = delayInput ? Number(delayInput.value) : undefined;
+  const intensityInput = exp.supportsIntensity ? el(`intensity-${name}`) : null;
+  const intensity = intensityInput ? Number(intensityInput.value) : undefined;
   const ok = await preflight(name);
   if (!ok) return;
 
@@ -338,8 +338,8 @@ async function approveAndRun(name) {
     `Experiment: ${name}
 Target: ${exp.target}
 Duration: ${duration}s` +
-    (delayMilliseconds ? `
-Added latency: ${delayMilliseconds}ms` : '') +
+    (intensity ? `
+${exp.intensityLabel}: ${intensity}${exp.intensityUnit}` : '') +
     `
 Risk: ${exp.risk}
 
@@ -357,7 +357,7 @@ Risk: ${exp.risk}
       body: JSON.stringify({
         experiment: name,
         durationSeconds: duration,
-        delayMilliseconds,
+        intensity,
         approved: true,
         approvedBy: 'dashboard operator',
       }),

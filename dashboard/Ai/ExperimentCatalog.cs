@@ -22,14 +22,18 @@ public sealed record ExperimentSpec(
     string Risk,
     string RecoveryPlan,
 
-    // Only experiments that shape traffic use these. Null means the experiment
-    // takes no delay parameter, and the runner will not pass one.
-    string? DelayParameter = null,
-    int MinDelayMs = 0,
-    int MaxDelayMs = 0,
-    int DefaultDelayMs = 0)
+    // A second, experiment-specific knob. network-delay measures it in
+    // milliseconds and packet-loss in percent, so it carries its own label and
+    // unit rather than each fault type growing its own parameter mechanism.
+    // Null means the experiment takes none, and the runner passes none.
+    string? IntensityParameter = null,
+    string? IntensityLabel = null,
+    string? IntensityUnit = null,
+    int MinIntensity = 0,
+    int MaxIntensity = 0,
+    int DefaultIntensity = 0)
 {
-    public bool SupportsDelay => DelayParameter is not null;
+    public bool SupportsIntensity => IntensityParameter is not null;
 }
 
 public static class ExperimentCatalog
@@ -72,8 +76,27 @@ public static class ExperimentCatalog
                 ExpectedBlastRadius: "The Workshop module stays up but slows markedly - roughly 3s per page at 400ms of added latency. Customer and Vehicle are unaffected. This degrades rather than removes the service.",
                 Risk: "medium",
                 RecoveryPlan: "The qdisc is deleted and its removal verified. A detached watchdog container owned by Docker removes it even if the orchestrator is killed, and restarting the container clears it as a last resort. Recovery is judged on latency returning to baseline, not on container status - the container never stops.",
-                DelayParameter: "-DelayMilliseconds",
-                MinDelayMs: 50, MaxDelayMs: 2000, DefaultDelayMs: 400),
+                IntensityParameter: "-DelayMilliseconds",
+                IntensityLabel: "Delay", IntensityUnit: "ms",
+                MinIntensity: 50, MaxIntensity: 2000, DefaultIntensity: 400),
+
+            // Registered after the same cleanup proof as network-delay: the
+            // qdisc lifecycle, the detached watchdog, and a verified removal.
+            // Distinct from network-delay because loss is partial and erratic
+            // rather than uniform - the regime retries exist for.
+            ["packet-loss"] = new(
+                Name: "packet-loss",
+                Script: "packet-loss.ps1",
+                DurationParameter: "-DurationSeconds",
+                MinDuration: 5, MaxDuration: 60, DefaultDuration: 20,
+                RequiresExecuteFlag: false,
+                Target: "workshopmanagementapi",
+                ExpectedBlastRadius: "The Workshop module stays up but its response times become erratic - most requests succeed, some take seconds while TCP retransmits. Customer and Vehicle are unaffected.",
+                Risk: "medium",
+                RecoveryPlan: "The qdisc is deleted and its removal verified. A detached watchdog container owned by Docker removes it even if the orchestrator is killed, and restarting the container clears it as a last resort. Recovery is judged on probe success and latency returning to baseline, not on container status - the container never stops.",
+                IntensityParameter: "-LossPercent",
+                IntensityLabel: "Loss", IntensityUnit: "%",
+                MinIntensity: 1, MaxIntensity: 40, DefaultIntensity: 20),
         };
 
     public static bool TryGet(string? name, out ExperimentSpec spec)

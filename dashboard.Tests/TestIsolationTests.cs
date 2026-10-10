@@ -45,7 +45,7 @@ public class TestIsolationTests : IDisposable
         {
             experiment,
             durationSeconds = duration,
-            delayMilliseconds = delay,
+            intensity = delay,
             approved = true,
             approvedBy = "isolation test",
         });
@@ -55,7 +55,7 @@ public class TestIsolationTests : IDisposable
         var invocation = Assert.Single(app.Runner.Invocations);
         Assert.Equal(experiment, invocation.Experiment);
         Assert.Equal(duration, invocation.Duration);
-        Assert.Equal(delay, invocation.Delay);
+        Assert.Equal(delay, invocation.Intensity);
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class TestIsolationTests : IDisposable
         });
 
         var invocation = Assert.Single(app.Runner.Invocations);
-        Assert.Equal(ExperimentCatalog.All["network-delay"].DefaultDelayMs, invocation.Delay);
+        Assert.Equal(ExperimentCatalog.All["network-delay"].DefaultIntensity, invocation.Intensity);
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public class TestIsolationTests : IDisposable
         await client.PostAsJsonAsync("/api/experiments/run", new { experiment = "kill-service", durationSeconds = 25, approved = false });
         await client.PostAsJsonAsync("/api/experiments/run", new { experiment = "not-registered", durationSeconds = 25, approved = true });
         await client.PostAsJsonAsync("/api/experiments/run", new { experiment = "kill-service", durationSeconds = 9999, approved = true });
-        await client.PostAsJsonAsync("/api/experiments/run", new { experiment = "network-delay", durationSeconds = 20, delayMilliseconds = 9999, approved = true });
+        await client.PostAsJsonAsync("/api/experiments/run", new { experiment = "network-delay", durationSeconds = 20, intensity = 9999, approved = true });
 
         Assert.Empty(app.Runner.Invocations);
     }

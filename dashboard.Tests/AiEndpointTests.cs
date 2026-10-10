@@ -74,11 +74,11 @@ internal sealed class StubAiHandler : HttpMessageHandler
 /// <summary>Records what it was asked to run. No process, no Docker, no fault.</summary>
 internal sealed class FakeExperimentRunner : IExperimentRunner
 {
-    public List<(string Experiment, int Duration, int? Delay)> Invocations { get; } = [];
+    public List<(string Experiment, int Duration, int? Intensity)> Invocations { get; } = [];
 
-    public Task RunAsync(ExperimentSpec spec, int durationSeconds, int? delayMilliseconds)
+    public Task RunAsync(ExperimentSpec spec, int durationSeconds, int? intensity)
     {
-        Invocations.Add((spec.Name, durationSeconds, delayMilliseconds));
+        Invocations.Add((spec.Name, durationSeconds, intensity));
         return Task.CompletedTask;
     }
 }
