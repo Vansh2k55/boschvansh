@@ -14,7 +14,8 @@ Last updated: 2026-10-10, after the dashboard landed.
 | Branch | `main`, synchronised with `origin/main` |
 | Latest commit | `git log --oneline -1` — most recent work is the publish-integrity finding |
 | Working tree | Clean apart from gitignored `chaos-scripts/results/` and build output |
-| Checkpoint tag | `pre-groq-migration` marks the last xAI-based commit |
+| Checkpoint tags | `baseline-phase0` (verified baseline, `a6bc383`) and `pre-groq-migration` |
+| **Open decision** | **Two parallel implementations have diverged — read `docs/AI_IMPLEMENTATION_PROGRESS.md` before any feature work.** |
 | PR #1 | **Merged** as `12a5245`. No open PRs. |
 | `feature/kill-rabbitmq` | **Deleted** — its one unique behaviour was ported first (`d4685e5`) |
 | `task2-kill-service` | PR #1's merged branch, still present. Safe to delete; nobody asked. |
