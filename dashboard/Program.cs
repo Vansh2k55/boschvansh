@@ -137,6 +137,15 @@ app.MapGet("/api/ai/status", async (AiProviderRouter router, CancellationToken c
     }, jsonOptions);
 });
 
+// Read-only. Exposes the exact schema sent to a provider so a live check can
+// use it without duplicating it, and so a schema-validation failure can be
+// diagnosed against what we actually send. Contains no evidence and no secrets.
+app.MapGet("/api/ai/schema", () => Results.Json(new
+{
+    recommendation = AiPrompts.RecommendationSchema(),
+    explanation = AiPrompts.ExplanationSchema(),
+}, jsonOptions));
+
 app.MapPost("/api/ai/mode", (ModeRequest request, AiModeStore store) =>
 {
     if (!Enum.TryParse<AiMode>(request.Mode, ignoreCase: true, out var mode))
