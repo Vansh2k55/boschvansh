@@ -1,3 +1,6 @@
+volumes:
+  sqlserverdata:
+
 services:
 
   rabbitmq:
@@ -16,11 +19,7 @@ services:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: sqlserver
     volumes:
-      - ./.containerdata/sqlserver/mssql:/var/opt/mssql
-      - ./.containerdata/sqlserver/data:/var/opt/mssql/data
-      - ./.containerdata/sqlserver/log:/var/opt/mssql/log
-      - ./.containerdata/sqlserver/secrets:/var/opt/mssql/secrets
-      - ./.containerdata/sqlserver/backups:/var/opt/mssql/backups 
+      - sqlserverdata:/var/opt/mssql
     ports:
       - "1434:1433"
     environment:
