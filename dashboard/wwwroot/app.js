@@ -291,6 +291,9 @@ function renderExperiments() {
         <label style="font-size:12px;color:var(--text-faint)">Duration
           <input type="number" min="${e.minDuration}" max="${e.maxDuration}" value="${e.defaultDuration}" id="dur-${e.name}">
         </label>
+        ${e.supportsDelay ? `<label style="font-size:12px;color:var(--text-faint)">Delay ms
+          <input type="number" min="${e.minDelayMs}" max="${e.maxDelayMs}" value="${e.defaultDelayMs}" id="delay-${e.name}">
+        </label>` : ''}
         <button class="danger" data-run="${e.name}" ${running ? 'disabled' : ''}>Approve &amp; inject</button>
         <button data-preflight="${e.name}">Preflight</button>
       </div>
@@ -321,6 +324,10 @@ async function preflight(name) {
 async function approveAndRun(name) {
   const exp = state.experiments.find((e) => e.name === name);
   const duration = Number(el(`dur-${name}`).value);
+  // Only sent for an experiment the registry says takes one; the server
+  // rejects a delay on anything else.
+  const delayInput = exp.supportsDelay ? el(`delay-${name}`) : null;
+  const delayMilliseconds = delayInput ? Number(delayInput.value) : undefined;
   const ok = await preflight(name);
   if (!ok) return;
 
@@ -328,7 +335,15 @@ async function approveAndRun(name) {
   // this is a real gate rather than a courtesy dialog.
   const confirmed = window.confirm(
     `Approve fault injection?\n\n` +
-    `Experiment: ${name}\nTarget: ${exp.target}\nDuration: ${duration}s\nRisk: ${exp.risk}\n\n` +
+    `Experiment: ${name}
+Target: ${exp.target}
+Duration: ${duration}s` +
+    (delayMilliseconds ? `
+Added latency: ${delayMilliseconds}ms` : '') +
+    `
+Risk: ${exp.risk}
+
+` +
     `Expected blast radius:\n${exp.expectedBlastRadius}\n\n` +
     `Recovery:\n${exp.recoveryPlan}\n\n` +
     `This will disrupt the sandbox. Continue?`);
@@ -339,7 +354,13 @@ async function approveAndRun(name) {
     await api('/api/experiments/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ experiment: name, durationSeconds: duration, approved: true, approvedBy: 'dashboard operator' }),
+      body: JSON.stringify({
+        experiment: name,
+        durationSeconds: duration,
+        delayMilliseconds,
+        approved: true,
+        approvedBy: 'dashboard operator',
+      }),
     });
     el(`blockers-${name}`).innerHTML = '<span style="color:var(--accent)">Approved. Injecting…</span>';
   } catch (err) {

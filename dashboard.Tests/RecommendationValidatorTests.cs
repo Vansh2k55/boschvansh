@@ -154,12 +154,14 @@ public class RecommendationValidatorTests
 public class ExperimentCatalogTests
 {
     [Fact]
-    public void Contains_only_the_two_supported_experiments()
+    public void Contains_only_the_experiments_that_have_been_proven_safe()
     {
-        // A third entry appearing here means something widened the blast radius.
-        Assert.Equal(2, ExperimentCatalog.All.Count);
+        // An entry appearing here that is not in this list means something
+        // widened the blast radius without the review that implies.
+        Assert.Equal(3, ExperimentCatalog.All.Count);
         Assert.Contains("kill-service", ExperimentCatalog.All.Keys);
         Assert.Contains("kill-rabbitmq", ExperimentCatalog.All.Keys);
+        Assert.Contains("network-delay", ExperimentCatalog.All.Keys);
     }
 
     [Fact]

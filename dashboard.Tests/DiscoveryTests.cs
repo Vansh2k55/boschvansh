@@ -198,7 +198,7 @@ public class DiscoveryExecutionBoundaryTests : IDisposable
 
         Assert.DoesNotContain(state!["experiments"]!.AsArray(),
             e => e!["name"]!.GetValue<string>().Contains("database", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(2, state["experiments"]!.AsArray().Count);
+        Assert.Equal(3, state["experiments"]!.AsArray().Count);
     }
 
     [Fact]
@@ -224,14 +224,14 @@ public class DiscoveryExecutionBoundaryTests : IDisposable
     }
 
     [Theory]
-    [InlineData("network-delay")]
     [InlineData("resource-exhaustion")]
     [InlineData("dependency-timeout")]
     [InlineData("kill-database")]
     public async Task Plausible_future_experiment_names_are_all_refused(string name)
     {
-        // These are exactly the names a model proposes. None is registered, so
-        // none runs - and preflight refuses them too.
+        // Exactly the names a model proposes. None is registered, so none runs,
+        // and preflight refuses them too. network-delay was on this list until
+        // it was implemented and proven - which is the only way off it.
         using var app = AppWithDiscovery();
         using var client = app.CreateClient();
 

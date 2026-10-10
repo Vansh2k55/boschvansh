@@ -10,6 +10,7 @@ it, so no component can be convinced that something is runnable when it is not.
 | --- | --- | --- | --- | --- | --- |
 | `kill-service` | `workshopmanagementapi` | container stop | 5–60s (default 25) | medium | **Implemented, tested** |
 | `kill-rabbitmq` | `rabbitmq` | container stop | 5–120s (default 25) | high | **Implemented, tested** |
+| `network-delay` | `workshopmanagementapi` | egress latency, 50–2000ms (default 400) | 5–60s (default 20) | medium | **Implemented, tested** |
 
 Each registered experiment defines: a stable ID, its fixed target, bounded
 parameters, risk level, expected blast radius, a recovery plan, preconditions
@@ -66,25 +67,40 @@ Adapted from teammate work on `origin/task2-kill-service` (PR #2), which is
 referenced for technique and not merged. See the integration decision in
 `docs/AI_IMPLEMENTATION_PROGRESS.md`.
 
-### `network-delay` — under evaluation
+### `network-delay` — registered
 
-Inject bounded egress latency on the Workshop API and observe graded
-degradation rather than a binary outage.
+Adds bounded egress latency to the Workshop API, so the service **degrades**
+instead of disappearing. The two crash experiments only ever fail one way:
+completely. This is the first measurement of the more common production case.
 
-The technique worth adopting: run `tc` from a **sidecar container sharing the
-target's network namespace** (`docker run --rm --network container:<id>
---cap-add NET_ADMIN ... tc ...`). The application image needs no `tc`, and the
-application container never holds `NET_ADMIN`.
+`tc` runs in a throwaway sidecar sharing the target's network namespace, so the
+application image needs no `tc` and the application container never holds
+`NET_ADMIN`. The sidecar is `pitstop-netem:1.0`, built locally from
+`chaos-scripts/netem-image` — about 16MB against several hundred for a
+general-purpose netshoot image — and run with `--pull=never`, so a missing
+image fails loudly instead of downloading mid-fault.
 
-Its safety requirements, all of which must be met before it is enabled:
+**Cleanup was the hard part**, because the qdisc lives in the *target's*
+namespace and outlives whatever applied it. Three independent layers, each
+verified in this environment before registration:
 
-- Refuse to run if a non-default qdisc already exists, so an unrelated traffic
-  rule is never clobbered.
-- Verify the `netem` qdisc is actually removed on restore — cleanup is checked,
-  not assumed.
-- `--pull=never` on the sidecar, so a missing image fails rather than silently
-  downloading one.
-- Restricted to a single named target.
+1. **Normal path** — the script deletes the qdisc and confirms it is gone.
+   `ShapingRemovalVerified` in the report records that check, not an assumption.
+2. **Orchestrator dies** — a *detached* watchdog container, owned by Docker
+   rather than by the script, deletes the qdisc after the duration elapses. It
+   survives PowerShell being killed outright, which an in-process `Start-Job`
+   does not. Verified by hard-killing the orchestrator mid-fault.
+3. **Everything fails** — restarting the container discards the namespace and
+   the shaping with it. The script prints that command when it exits unhappy.
+
+It refuses to start if a traffic-control rule is already present, so an
+unrelated configuration is never clobbered, and it verifies the fault actually
+applied — an experiment that silently failed to inject would otherwise report
+a clean run and prove nothing.
+
+**Recovery is judged on observed latency returning to within a budget derived
+from the measured baseline.** Container status is meaningless here: the
+container never stops.
 
 ### `kill-database` — deferred
 

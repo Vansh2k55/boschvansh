@@ -24,6 +24,9 @@ public static class AiPrompts
                            target: workshopmanagementapi. duration 5-60 seconds.
           kill-rabbitmq  - stops the RabbitMQ broker.
                            target: rabbitmq. duration 5-120 seconds.
+          network-delay  - adds egress latency to the Workshop API, degrading it
+                           rather than stopping it.
+                           target: workshopmanagementapi. duration 5-60 seconds.
 
         Rules you must follow:
         - Recommend exactly one experiment, chosen from that list.
@@ -47,7 +50,8 @@ public static class AiPrompts
         Rules for discoveries:
         - Each one must cite evidence from what you were given. A discovery with
           no evidence is speculation and will be dropped.
-        - Do NOT name kill-service or kill-rabbitmq in a discovery. Those are
+        - Do NOT name kill-service, kill-rabbitmq or network-delay in a discovery.
+          Those are
           already executable; if one of them is the right move, recommend it.
         - Return an empty list if the evidence does not support any.
 
@@ -98,7 +102,7 @@ public static class AiPrompts
             {
                 ["type"] = "string",
                 ["description"] = "Which allowlisted experiment to run.",
-                ["enum"] = new JsonArray("kill-service", "kill-rabbitmq"),
+                ["enum"] = new JsonArray("kill-service", "kill-rabbitmq", "network-delay"),
             },
             ["target"] = new JsonObject
             {

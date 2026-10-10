@@ -74,6 +74,10 @@ app.MapGet("/api/state", async (CancellationToken ct) => Results.Json(new
         minDuration = e.Value.MinDuration,
         maxDuration = e.Value.MaxDuration,
         defaultDuration = e.Value.DefaultDuration,
+        supportsDelay = e.Value.SupportsDelay,
+        minDelayMs = e.Value.MinDelayMs,
+        maxDelayMs = e.Value.MaxDelayMs,
+        defaultDelayMs = e.Value.DefaultDelayMs,
     }),
     run = runState.Snapshot(),
     killSwitchEngaged = File.Exists(stopFile),
@@ -296,6 +300,22 @@ app.MapPost("/api/experiments/run", async (RunRequest request, CancellationToken
     if (duration < spec.MinDuration || duration > spec.MaxDuration)
         return Results.BadRequest(new { error = $"Duration must be between {spec.MinDuration} and {spec.MaxDuration} seconds." });
 
+    // A delay is only meaningful for an experiment that shapes traffic, and is
+    // bounded by the registry exactly as the duration is.
+    int? delay = null;
+    if (spec.SupportsDelay)
+    {
+        delay = request.DelayMilliseconds ?? spec.DefaultDelayMs;
+        if (delay < spec.MinDelayMs || delay > spec.MaxDelayMs)
+        {
+            return Results.BadRequest(new { error = $"Delay must be between {spec.MinDelayMs} and {spec.MaxDelayMs} ms." });
+        }
+    }
+    else if (request.DelayMilliseconds is not null)
+    {
+        return Results.BadRequest(new { error = $"'{spec.Name}' takes no delay parameter." });
+    }
+
     if (File.Exists(stopFile))
         return Results.BadRequest(new { error = "The STOP file is present. Remove it before starting an experiment." });
 
@@ -308,11 +328,12 @@ app.MapPost("/api/experiments/run", async (RunRequest request, CancellationToken
         action = "experiment.approved",
         experiment = request.Experiment,
         durationSeconds = duration,
+        delayMilliseconds = delay,
         approvedBy = string.IsNullOrWhiteSpace(request.ApprovedBy) ? "dashboard operator" : request.ApprovedBy,
     });
 
-    _ = Task.Run(() => RunExperimentAsync(spec, duration), CancellationToken.None);
-    return Results.Accepted($"/api/state", new { started = true, experiment = request.Experiment, durationSeconds = duration });
+    _ = Task.Run(() => RunExperimentAsync(spec, duration, delay), CancellationToken.None);
+    return Results.Accepted($"/api/state", new { started = true, experiment = request.Experiment, durationSeconds = duration, delayMilliseconds = delay });
 });
 
 app.MapPost("/api/experiments/stop", () =>
@@ -461,10 +482,15 @@ List<object> ListRuns()
     return rows.OrderByDescending(r => r.Written).Select(r => r.Row).ToList();
 }
 
-async Task RunExperimentAsync(ExperimentSpec spec, int duration)
+async Task RunExperimentAsync(ExperimentSpec spec, int duration, int? delayMilliseconds)
 {
     var scriptPath = Path.Combine(chaosScripts, spec.Script);
     var args = new List<string> { "-NoProfile", "-NonInteractive", "-File", scriptPath, spec.DurationParameter, duration.ToString() };
+    if (spec.SupportsDelay && delayMilliseconds is { } ms)
+    {
+        args.Add(spec.DelayParameter!);
+        args.Add(ms.ToString());
+    }
     if (spec.RequiresExecuteFlag) args.Add("-Execute");
 
     AppendAudit(new { timestampUtc = DateTime.UtcNow, action = "experiment.started", experiment = spec.Script, durationSeconds = duration });
@@ -528,7 +554,7 @@ void AppendAudit(object entry)
 
 record ServiceStatus(string Name, bool Running, string State, string Health);
 record ModuleProbe(string Name, int? StatusCode, bool Healthy, double LatencyMs, bool OfflinePage, string? Error);
-record RunRequest(string? Experiment, int? DurationSeconds, bool Approved, string? ApprovedBy);
+record RunRequest(string? Experiment, int? DurationSeconds, bool Approved, string? ApprovedBy, int? DelayMilliseconds = null);
 record ModeRequest(string? Mode);
 
 sealed class RunState

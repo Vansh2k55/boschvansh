@@ -253,6 +253,61 @@ executable and each citing real evidence from the saved reports.
 `failureMode` text ("failure", "success") while citing accurate evidence. A
 larger local model or Groq would do better; the safety boundary is unaffected.
 
+## Phase 5 — network-delay ✅
+
+**Feasibility was established empirically first, not assumed from the teammate
+branch.** Their `nicolaka/netshoot:v0.13` is not present here, and alpine has
+no `tc`. Verified in this environment before writing anything:
+
+| Probe | Result |
+| --- | --- |
+| Sidecar joins the target network namespace | **Works** — target `eth0` visible, default `noqueue` qdisc |
+| `tc` available | **No** in alpine; built `pitstop-netem:1.0` (16MB, alpine + iproute2) |
+| Add → verify → remove cycle | **Works** — `noqueue` → `netem delay` → `noqueue` |
+| Detached watchdog cleans up with no orchestrator | **Works** |
+| Container restart clears shaping | **Works** (last resort) |
+
+### Failure paths tested, not just the happy path
+
+| Scenario | Result |
+| --- | --- |
+| Normal completion | Shaping applied and removed, both **verified**; recovered |
+| Kill switch mid-fault | Aborted early, shaping removed, qdisc back to `noqueue` |
+| **Orchestrator hard-killed mid-fault** | netem persisted as expected, then the **detached watchdog removed it with no orchestrator alive** |
+| Pre-existing traffic rule | **Refused**, and the existing rule was left intact |
+| Concurrent experiment | **Refused** by the cross-process lock |
+| Delay out of bounds (0, 49, 2001, 60000) | Rejected by the registry bounds |
+| Delay on an experiment that takes none | Rejected |
+| Duration out of bounds | Rejected |
+| Approval withheld | Rejected |
+
+### Measured behaviour
+
+The point of the experiment, and the first time the platform has measured it:
+
+| | Baseline | Under 500ms delay | Recovered |
+| --- | --- | --- | --- |
+| WorkshopManagement | 18.1ms, 200 | **5026ms, still 200 and healthy** | 18.9ms, 200 |
+| CustomerManagement | ~16ms | ~16ms, unaffected | ~16ms |
+| VehicleManagement | ~10ms | ~10ms, unaffected | ~10ms |
+
+The service **degrades without failing** — a qualitatively different signature
+from the crash experiments, and the gap the discovery path kept pointing at.
+
+Verified end to end through the dashboard: approved with a 500ms delay, the
+dashboard's own probes showed Workshop at 4018ms while healthy, the run landed
+in history, and the report records `ShapingVerified: True`,
+`ShapingRemovalVerified: True`, and a `RecoveryBasis` stating explicitly that
+container status proves nothing here.
+
+**15 tests added (106 total).** Three existing tests legitimately changed:
+they encoded "only two experiments" and "network-delay is not executable",
+which registering it made false. One of them briefly started a real experiment
+during the test run before being fixed; a guard test now asserts that no
+rejected request leaves an experiment running, so the suite cannot begin
+injecting real faults if a future change makes one of those parameter sets
+valid.
+
 ---
 
 ## Remaining
@@ -260,7 +315,7 @@ larger local model or Groq would do better; the safety boundary is unaffected.
 | Phase | State |
 | --- | --- |
 | 4 — Self-analysis and experiment discovery | **Complete.** |
-| 5 — Experiment registry and `network-delay` | **Not started.** `ExperimentCatalog` is already the single source of truth; the adapted `tc` sidecar experiment is specified in `docs/AI_EXPERIMENT_DESIGN.md` and not implemented. |
+| 5 — Experiment registry and `network-delay` | **Complete.** Three registered experiments. |
 | 6 — Safety hardening | **Partly done** via the guards above. Watchdog-under-kill remains untested. |
 | 7 — Integration and live verification | **Not started.** Groq has never run live - no key. |
 | 8 — Final report | Pending. |
@@ -279,8 +334,14 @@ larger local model or Groq would do better; the safety boundary is unaffected.
 
 ## Next action
 
-Phase 5: implement `network-delay` as a registered experiment using the
-tc-sidecar technique in `docs/AI_EXPERIMENT_DESIGN.md`, with the qdisc guard and
-verified removal. Enable it only if cleanup can be proven after normal
-completion, failure, timeout, cancellation and kill-switch activation.
+Phase 6 — safety and regression hardening, per `docs/AI_IMPLEMENTATION_PLAN.md`.
+Much of it already holds. What remains unproven is the watchdog on the two
+crash experiments under a hard orchestrator kill (network-delay's equivalent is
+now verified) and the threshold rollback on `kill-rabbitmq`.
+
+Before running `network-delay` on a fresh checkout, build the sidecar once:
+
+```powershell
+docker build -t pitstop-netem:1.0 chaos-scripts/netem-image
+```
 

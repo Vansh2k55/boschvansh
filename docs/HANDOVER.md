@@ -16,7 +16,7 @@ Last updated: 2026-10-10, after the dashboard landed.
 | Working tree | Clean apart from gitignored `chaos-scripts/results/` and build output |
 | Checkpoint tags | `baseline-phase0` (verified baseline, `a6bc383`) and `pre-groq-migration` |
 | Branch fork | **Decided:** adapt techniques from PR #2, do not merge it. Their branches are untouched. A new one, `Jigisha-Pradhan-patch-1`, has appeared and is also untouched. |
-| Platform work | Phases 0-4 complete (91 tests). **Next: Phase 5, network-delay.** |
+| Platform work | Phases 0-5 complete (106 tests). **Next: Phase 6.** |
 | PR #1 | **Merged** as `12a5245`. No open PRs. |
 | `feature/kill-rabbitmq` | **Deleted** — its one unique behaviour was ported first (`d4685e5`) |
 | `task2-kill-service` | PR #1's merged branch, still present. Safe to delete; nobody asked. |
@@ -27,6 +27,18 @@ nothing depends on it. Leave it.
 ## Start everything
 
 Stack (13 containers): `docker compose -f src/docker-compose.yml ps`
+
+`network-delay` needs its sidecar image, built once:
+
+```powershell
+docker build -t pitstop-netem:1.0 chaos-scripts/netem-image
+```
+
+If an experiment ever leaves traffic shaping behind, this clears it:
+
+```powershell
+docker compose -f src/docker-compose.yml restart workshopmanagementapi
+```
 
 Cold start, from `src/`, base images first and in order:
 
@@ -62,6 +74,7 @@ every database in it.
 ./chaos-scripts/kill-service.ps1 -DurationSeconds 30          # Workshop crash
 ./chaos-scripts/kill-rabbitmq.ps1                             # dry run, changes nothing
 ./chaos-scripts/kill-rabbitmq.ps1 -DowntimeSeconds 25 -Execute
+./chaos-scripts/network-delay.ps1 -DurationSeconds 20 -DelayMilliseconds 400
 ./chaos-scripts/analyze.ps1                                   # agent; read-only, no network
 ./chaos-scripts/test-publish-integrity.ps1 -Writes 20         # regression test
 ```
