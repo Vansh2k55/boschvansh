@@ -1,3 +1,7 @@
+# Audit update, 11 October 2026
+
+Reproducibility audit: setup and safe demo guide added in docs/REPRODUCIBLE_DEMO.md. Cold builds, live providers and a full fault demo remain unverified.
+
 # Project status
 
 Last updated: 2026-10-10, after PR #1 was merged · `main` (see `docs/HANDOVER.md`

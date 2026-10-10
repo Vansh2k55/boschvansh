@@ -1,3 +1,7 @@
+# Audit update, 11 October 2026
+
+Reproducibility audit: setup and safe demo guide added in docs/REPRODUCIBLE_DEMO.md. Cold builds, live providers and a full fault demo remain unverified.
+
 # START HERE
 
 > **Resuming in a new session? Read `docs/NEXT_LLM_CHECKLIST.md` first.** It
