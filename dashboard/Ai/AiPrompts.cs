@@ -66,8 +66,23 @@ public static class AiPrompts
         ["type"] = "object",
         ["properties"] = new JsonObject
         {
-            ["experiment"] = Str("Exactly 'kill-service' or 'kill-rabbitmq'."),
-            ["target"] = Str("The fixed target container for that experiment."),
+            // Constrained at the schema level, not just asked for in prose. A
+            // small local model will otherwise invent an experiment name, and a
+            // structural constraint stops that before it reaches the validator.
+            // The validator still checks both - this makes the common case work,
+            // it does not replace the safety boundary.
+            ["experiment"] = new JsonObject
+            {
+                ["type"] = "string",
+                ["description"] = "Which allowlisted experiment to run.",
+                ["enum"] = new JsonArray("kill-service", "kill-rabbitmq"),
+            },
+            ["target"] = new JsonObject
+            {
+                ["type"] = "string",
+                ["description"] = "The fixed target container for that experiment.",
+                ["enum"] = new JsonArray("workshopmanagementapi", "rabbitmq"),
+            },
             ["durationSeconds"] = new JsonObject { ["type"] = "integer", ["description"] = "Within the permitted range for the chosen experiment." },
             ["hypothesis"] = Str("What you expect this experiment to reveal."),
             ["expectedImpact"] = Str("What the operator should expect to see happen."),

@@ -18,7 +18,13 @@ using System.Text.Json.Nodes;
 using Pitstop.ResilienceDashboard;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddHttpClient<GrokClient>(c => c.Timeout = TimeSpan.FromSeconds(90));
+var aiOptions = AiOptions.Load(builder.Configuration);
+builder.Services.AddSingleton(aiOptions);
+// Per-request timeouts are enforced inside each provider, so the HttpClient
+// timeout is only a backstop well above both.
+builder.Services.AddHttpClient<GroqClient>(c => c.Timeout = TimeSpan.FromSeconds(300));
+builder.Services.AddHttpClient<OllamaClient>(c => c.Timeout = TimeSpan.FromSeconds(300));
+builder.Services.AddScoped<AiProviderRouter>();
 var app = builder.Build();
 
 var repoRoot = FindRepoRoot(app.Environment.ContentRootPath)
@@ -32,6 +38,11 @@ var auditLog = Path.Combine(resultsDir, "audit.jsonl");
 // Experiments live in ExperimentCatalog so the runner and the AI-recommendation
 // validator can never drift apart on what is permitted.
 var allowlist = ExperimentCatalog.All;
+
+// IPv4 explicitly. On Windows "localhost" resolves to ::1 first, and a
+// wslrelay listener can hold [::1]:7005 without serving it, which makes
+// every probe time out while the app is healthy on IPv4.
+var siteBaseUrl = Environment.GetEnvironmentVariable("PITSTOP_SITE_URL") ?? "http://127.0.0.1:7005";
 
 var runState = new RunState();
 var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -89,15 +100,20 @@ app.MapGet("/api/preflight/{name}", async (string name, CancellationToken ct) =>
 // a recommendation that passes validation is still only something to show a
 // human, who must approve it through /api/experiments/run as before.
 
-app.MapGet("/api/ai/status", () => Results.Json(new
+app.MapGet("/api/ai/status", async (AiProviderRouter router, CancellationToken ct) =>
 {
-    // Whether a key exists, never the key itself.
-    configured = GrokClient.IsConfigured,
-    model = Environment.GetEnvironmentVariable("XAI_MODEL") ?? GrokClient.DefaultModel,
-    note = "Deterministic scoring and the kill switch do not depend on this.",
-}, jsonOptions));
+    var providers = await router.GetStatusAsync(ct);
+    return Results.Json(new
+    {
+        // Whether a key exists, never the key itself.
+        providers,
+        activeProvider = await router.ResolveActiveProviderAsync(ct),
+        configured = providers.Any(p => p.Available),
+        note = "Deterministic scoring and the kill switch do not depend on any of these.",
+    }, jsonOptions);
+});
 
-app.MapPost("/api/ai/recommend", async (GrokClient grok, CancellationToken ct) =>
+app.MapPost("/api/ai/recommend", async (AiProviderRouter router, CancellationToken ct) =>
 {
     var services = await ProbeServicesAsync(ct);
     var modules = await ProbeModulesAsync(ct);
@@ -128,7 +144,7 @@ app.MapPost("/api/ai/recommend", async (GrokClient grok, CancellationToken ct) =
         ["mostDependedOn"] = graph?["mostDependedOn"]?.DeepClone(),
     };
 
-    var result = await grok.CompleteAsync<AiRecommendation>(
+    var result = await router.CompleteAsync<AiRecommendation>(
         AiPrompts.RecommendSystemPrompt,
         "Recommend the single most informative next chaos experiment for this system.\n\n" +
         "Evidence:\n" + evidence.ToJsonString(),
@@ -138,8 +154,8 @@ app.MapPost("/api/ai/recommend", async (GrokClient grok, CancellationToken ct) =
 
     if (!result.Ok)
     {
-        AppendAudit(new { timestampUtc = DateTime.UtcNow, action = "ai.recommend.failed", error = result.Error });
-        return Results.Json(new { ok = false, error = result.Error }, jsonOptions, statusCode: 503);
+        AppendAudit(new { timestampUtc = DateTime.UtcNow, action = "ai.recommend.failed", error = result.Error, attempts = result.Attempts });
+        return Results.Json(new { ok = false, error = result.Error, attempts = result.Attempts }, jsonOptions, statusCode: 503);
     }
 
     var validation = RecommendationValidator.Validate(result.Value);
@@ -147,6 +163,7 @@ app.MapPost("/api/ai/recommend", async (GrokClient grok, CancellationToken ct) =
     {
         timestampUtc = DateTime.UtcNow,
         action = "ai.recommend",
+        provider = result.Provider,
         experiment = result.Value?.Experiment,
         proposedTarget = result.Value?.Target,
         proposedDuration = result.Value?.DurationSeconds,
@@ -166,6 +183,8 @@ app.MapPost("/api/ai/recommend", async (GrokClient grok, CancellationToken ct) =
     return Results.Json(new
     {
         ok = true,
+        provider = result.Provider,
+        attempts = result.Attempts,
         allowed = validation.Allowed,
         rejections = validation.Rejections,
         recommendation = validation.Recommendation,
@@ -184,7 +203,7 @@ app.MapPost("/api/ai/recommend", async (GrokClient grok, CancellationToken ct) =
     }, jsonOptions);
 });
 
-app.MapPost("/api/ai/explain/{runId}", async (string runId, GrokClient grok, CancellationToken ct) =>
+app.MapPost("/api/ai/explain/{runId}", async (string runId, AiProviderRouter router, CancellationToken ct) =>
 {
     if (!runId.All(char.IsLetterOrDigit)) return Results.BadRequest(new { error = "Invalid run id." });
     var report = ReadJsonFile(Path.Combine(resultsDir, runId, "report.json"));
@@ -214,7 +233,7 @@ app.MapPost("/api/ai/explain/{runId}", async (string runId, GrokClient grok, Can
         ["sampleExcerpt"] = trimmed,
     };
 
-    var result = await grok.CompleteAsync<AiExplanation>(
+    var result = await router.CompleteAsync<AiExplanation>(
         AiPrompts.ExplainSystemPrompt,
         "Explain what this chaos experiment revealed.\n\nEvidence:\n" + evidence.ToJsonString(),
         "chaos_experiment_explanation",
@@ -223,11 +242,11 @@ app.MapPost("/api/ai/explain/{runId}", async (string runId, GrokClient grok, Can
 
     if (!result.Ok)
     {
-        return Results.Json(new { ok = false, error = result.Error }, jsonOptions, statusCode: 503);
+        return Results.Json(new { ok = false, error = result.Error, attempts = result.Attempts }, jsonOptions, statusCode: 503);
     }
 
-    AppendAudit(new { timestampUtc = DateTime.UtcNow, action = "ai.explain", runId });
-    return Results.Json(new { ok = true, explanation = result.Value }, jsonOptions);
+    AppendAudit(new { timestampUtc = DateTime.UtcNow, action = "ai.explain", runId, provider = result.Provider });
+    return Results.Json(new { ok = true, provider = result.Provider, attempts = result.Attempts, explanation = result.Value }, jsonOptions);
 });
 
 // ---- the only two state-changing endpoints --------------------------------
@@ -366,7 +385,7 @@ async Task<List<ModuleProbe>> ProbeModulesAsync(CancellationToken ct)
         var sw = Stopwatch.StartNew();
         try
         {
-            var response = await http.GetAsync($"http://localhost:7005/{module}", ct);
+            var response = await http.GetAsync($"{siteBaseUrl}/{module}", ct);
             var body = await response.Content.ReadAsStringAsync(ct);
             sw.Stop();
             var offline = body.Contains("module is offline", StringComparison.OrdinalIgnoreCase);

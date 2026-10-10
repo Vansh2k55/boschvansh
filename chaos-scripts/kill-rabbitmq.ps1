@@ -74,7 +74,7 @@ function Measure-Module {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $status = $null; $offline = $false; $healthy = $false; $errorText = $null
     try {
-        $response = Invoke-WebRequest -Uri "http://localhost:7005/$Module" -UseBasicParsing -TimeoutSec $RequestTimeoutSeconds
+        $response = Invoke-WebRequest -Uri "http://127.0.0.1:7005/$Module" -UseBasicParsing -TimeoutSec $RequestTimeoutSeconds
         $status = [int]$response.StatusCode
         $offline = $response.Content -match '(?i)module is offline|management\s*-\s*offline'
         $healthy = $status -eq 200 -and -not $offline -and $response.Content -match ($Module -replace 'Management', ' Management')
@@ -157,7 +157,7 @@ try {
 
     $portLine = (Invoke-Docker -DockerArgs @('compose', '-f', $composeFile, 'port', 'customermanagementapi', '5100') | Out-String).Trim()
     if (-not $portLine) { throw 'Could not resolve the Customer API published port.' }
-    $script:customerApi = "http://localhost:$(($portLine -split ':')[-1])"
+    $script:customerApi = "http://127.0.0.1:$(($portLine -split ':')[-1])"
 
     if (-not $Execute) {
         Write-Host ''

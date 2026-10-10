@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Pitstop.ResilienceDashboard;
 using Xunit;
 
@@ -183,41 +184,55 @@ public class ExperimentCatalogTests
     }
 }
 
-public class GrokClientTests
+public class ProviderConfigurationTests
 {
     [Fact]
-    public async Task Fails_cleanly_when_no_api_key_is_configured()
+    public void Groq_reports_configuration_state_without_exposing_the_key()
     {
-        // The dashboard and the deterministic analyzer must keep working with no
-        // key, so this path returns an error rather than throwing.
-        var previous = Environment.GetEnvironmentVariable("XAI_API_KEY");
-        Environment.SetEnvironmentVariable("XAI_API_KEY", null);
+        var previous = Environment.GetEnvironmentVariable("GROQ_API_KEY");
         try
         {
-            var client = new GrokClient(new HttpClient());
+            Environment.SetEnvironmentVariable("GROQ_API_KEY", "test-value-not-a-real-key");
+            Assert.True(GroqClient.IsConfigured);
 
-            var result = await client.CompleteAsync<AiRecommendation>(
-                "system", "user", "schema", AiPrompts.RecommendationSchema(), CancellationToken.None);
-
-            Assert.False(result.Ok);
-            Assert.Null(result.Value);
-            Assert.Contains("XAI_API_KEY", result.Error);
+            Environment.SetEnvironmentVariable("GROQ_API_KEY", "");
+            Assert.False(GroqClient.IsConfigured);
         }
-        finally { Environment.SetEnvironmentVariable("XAI_API_KEY", previous); }
+        finally { Environment.SetEnvironmentVariable("GROQ_API_KEY", previous); }
     }
 
     [Fact]
-    public void Reports_configuration_state_without_exposing_the_key()
+    public void Defaults_to_a_groq_model_that_supports_strict_schema_output()
     {
-        var previous = Environment.GetEnvironmentVariable("XAI_API_KEY");
+        // Groq only honours response_format json_schema strict on the gpt-oss
+        // family and qwen3.8-27b. A Llama default would accept the request and
+        // silently ignore the schema.
+        var options = new AiOptions();
+
+        Assert.Contains(options.Groq.Model, new[] { "openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b" });
+        Assert.Equal("https://api.groq.com/openai/v1/chat/completions", options.Groq.Endpoint);
+    }
+
+    [Fact]
+    public void Ollama_defaults_to_the_documented_local_endpoint()
+    {
+        var options = new AiOptions();
+
+        Assert.Equal("http://localhost:11434", options.Ollama.BaseUrl);
+        Assert.False(string.IsNullOrWhiteSpace(options.Ollama.Model));
+    }
+
+    [Fact]
+    public void Environment_overrides_the_configured_models()
+    {
+        var previousModel = Environment.GetEnvironmentVariable("OLLAMA_MODEL");
         try
         {
-            Environment.SetEnvironmentVariable("XAI_API_KEY", "test-value-not-a-real-key");
-            Assert.True(GrokClient.IsConfigured);
+            Environment.SetEnvironmentVariable("OLLAMA_MODEL", "deepseek-r1:8b");
+            var options = AiOptions.Load(new ConfigurationBuilder().Build());
 
-            Environment.SetEnvironmentVariable("XAI_API_KEY", "");
-            Assert.False(GrokClient.IsConfigured);
+            Assert.Equal("deepseek-r1:8b", options.Ollama.Model);
         }
-        finally { Environment.SetEnvironmentVariable("XAI_API_KEY", previous); }
+        finally { Environment.SetEnvironmentVariable("OLLAMA_MODEL", previousModel); }
     }
 }

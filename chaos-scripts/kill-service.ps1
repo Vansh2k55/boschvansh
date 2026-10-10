@@ -41,7 +41,7 @@ function Measure-Module {
     $healthy = $false
     $errorText = $null
     try {
-        $response = Invoke-WebRequest -Uri "http://localhost:7005/$Module" -UseBasicParsing -TimeoutSec $RequestTimeoutSeconds
+        $response = Invoke-WebRequest -Uri "http://127.0.0.1:7005/$Module" -UseBasicParsing -TimeoutSec $RequestTimeoutSeconds
         $status = [int]$response.StatusCode
         $offline = $response.Content -match '(?i)module is offline|management\s*-\s*offline'
         $healthy = $status -eq 200 -and -not $offline -and $response.Content -match ($Module -replace 'Management', ' Management')

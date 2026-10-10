@@ -32,7 +32,7 @@ $composeFile = Join-Path $repo 'src/docker-compose.yml'
 
 $portLine = (& docker compose -f $composeFile port customermanagementapi 5100 | Out-String).Trim()
 if (-not $portLine) { throw 'Could not resolve the Customer API published port. Is the stack running?' }
-$api = "http://localhost:$((($portLine -split ':')[-1]))"
+$api = "http://127.0.0.1:$((($portLine -split ':')[-1]))"
 Write-Host "Customer API: $api"
 Write-Host "Writing $Writes customers against a healthy system."
 Write-Host ''

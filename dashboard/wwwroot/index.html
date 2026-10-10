@@ -61,7 +61,7 @@
     </section>
 
     <section class="panel ai">
-      <h2>Grok explanation <span class="note">narrative only &mdash; scores above are unaffected</span></h2>
+      <h2>AI explanation <span class="note">narrative only &mdash; scores above are unaffected</span></h2>
       <div class="body">
         <div class="controls">
           <button id="btn-explain">Explain latest run</button>
@@ -89,13 +89,14 @@
       <h2>AI experiment planner <span class="note" id="ai-status">checking&hellip;</span></h2>
       <div class="body">
         <p style="margin:0 0 11px;color:var(--text-dim);font-size:12.5px">
-          Grok reads the live evidence and proposes one experiment. The server then
+          The AI reads the live evidence and proposes one experiment. The server then
           checks it against the fixed allowlist &mdash; the model cannot invent an
           experiment, choose a target, or widen a duration. It recommends; you approve.
         </p>
         <div class="controls">
           <button id="btn-recommend">AI Recommend Experiment</button>
         </div>
+        <div id="provider-status" class="legend"></div>
         <div id="ai-recommendation"></div>
       </div>
     </section>
