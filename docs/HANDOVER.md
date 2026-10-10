@@ -64,31 +64,34 @@ New-Item chaos-scripts/STOP -ItemType File -Force
 
 Delete it before the next run or every experiment refuses to start.
 
-## The open decision — read this before building anything
+## The integrity finding — fixed, with one part still open
 
-**The write/event divergence is confirmed, far worse than first thought, and
-deliberately not fixed.** Full write-up in `docs/publish-integrity.md`.
+Full write-up in `docs/publish-integrity.md`.
 
-Against a *healthy* system, 30% of customer registrations return 500 with the
-row committed and no event ever published. Cause: the publisher is registered
-`AddTransient`, so a new publisher and connection is built per request, and
-`Connect()` is accidentally `async void`, so the constructor returns before
-`_channel` is assigned. The publish then races the connection and often throws
-`NullReferenceException` — after `SaveChangesAsync` has committed.
+**What was wrong.** On a *healthy* system, 30% of customer registrations
+returned 500 with the row committed and no event published. Cause: the
+publisher was registered `AddTransient` (new publisher and connection per
+request) and `Connect()` was accidentally `async void`, so every request raced
+a half-built connection and often threw `NullReferenceException` — after
+`SaveChangesAsync` had committed.
 
-**Why it is not fixed:** every service consumes `Infrastructure.Messaging` as a
-NuGet `PackageReference` pinned to the published `5.5.0`. There is no
-`nuget.config`, and each Dockerfile's build context never copies the messaging
-source. **Editing `src/Infrastructure.Messaging/` does not change the running
-system.** This was verified by making the fix, rebuilding the images,
-force-recreating the containers and seeing the same exception. The same applies
-to the earlier `RabbitMQMessageHandler` correction — it is inert at runtime.
+**Why it was hard to fix.** `src/Infrastructure.Messaging/` was consumed as a
+published NuGet package, so editing it changed nothing at runtime. Verified by
+rebuilding and force-recreating the containers and seeing the same exception.
 
-Three options are written up with trade-offs in `docs/publish-integrity.md`:
-make the local source authoritative via project references (A), decorate the
-publisher per API (B), or add a transactional outbox (C). **Saurabh needs to
-pick before anyone implements.** `chaos-scripts/test-publish-integrity.ps1` is
-the before/after measurement for whichever is chosen.
+**Fixed (option A).** All nine services now reference the library by project,
+the Dockerfiles build from the `src/` context, and the compose build stanzas
+were widened. Measured with `test-publish-integrity.ps1`:
+
+| | Before | After |
+| --- | --- | --- |
+| Divergent writes | 6 of 20 (30%) | **0 of 30 (0%)** |
+| Exit code | 1 FAIL | **0 PASS** |
+
+**Still open: durability (option C).** A genuine broker outage still diverges —
+`kill-rabbitmq.ps1` after the fix still reports `DivergenceDetected`, because
+the write commits before the publish is attempted. That needs a transactional
+outbox and is the largest remaining piece of work.
 
 ## Verified by running it
 
@@ -117,7 +120,7 @@ the before/after measurement for whichever is chosen.
 - **No LLM call exists anywhere in the repo.** No key, no network call. The
   design and the deterministic agent are built; the narrative layer is step 3 in
   `docs/AI_ANALYSIS_DESIGN.md`.
-- The publish-integrity fix — blocked on the scope decision above.
+- Durable publishing (transactional outbox). The spurious 30% is fixed; a real broker outage still loses the event.
 - No network-delay or database experiment.
 - Watchdog restore untested in both experiments (needs PowerShell killed mid-run).
 - Threshold rollback untested in `kill-rabbitmq.ps1` — pages stay healthy during a
@@ -128,11 +131,12 @@ the before/after measurement for whichever is chosen.
 
 ## Highest-priority next action
 
-Get the scope decision on `docs/publish-integrity.md`, then implement it and
-re-run `test-publish-integrity.ps1` to record the after.
+Build the narrative layer on `analyze.ps1` (step 3 in
+`docs/AI_ANALYSIS_DESIGN.md`) — additive, and everything it needs already
+exists. It is the only P2 gap left.
 
-If that is blocked, build the narrative layer on `analyze.ps1` (step 3 in
-`docs/AI_ANALYSIS_DESIGN.md`) — additive, everything it needs exists.
+After that, the transactional outbox (option C in `docs/publish-integrity.md`),
+which is the one part of the integrity problem still open.
 
 ## Safety rules
 
