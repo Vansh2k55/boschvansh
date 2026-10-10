@@ -80,20 +80,32 @@ public sealed class GroqClient(HttpClient http, AiOptions options) : IAiProvider
         HttpResponseMessage response;
         try
         {
-            response = await http.SendAsync(request, timeout.Token);
+            response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             return (false, null, $"Groq timed out after {options.Groq.TimeoutSeconds}s.");
         }
-        catch (HttpRequestException ex)
+        catch (HttpRequestException)
         {
-            return (false, null, $"Could not reach Groq: {ex.Message}");
+            return (false, null, "Could not reach Groq.");
         }
 
         using (response)
         {
-            var raw = await response.Content.ReadAsStringAsync(ct);
+            string raw;
+            try
+            {
+                raw = await response.Content.ReadAsStringAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                return (false, null, $"Groq timed out after {options.Groq.TimeoutSeconds}s while reading its response.");
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException)
+            {
+                return (false, null, "Could not read Groq's response.");
+            }
             if (!response.IsSuccessStatusCode)
             {
                 var reason = response.StatusCode switch
@@ -103,10 +115,9 @@ public sealed class GroqClient(HttpClient http, AiOptions options) : IAiProvider
                     HttpStatusCode.Forbidden => "Groq denied access",
                     _ => $"Groq returned {(int)response.StatusCode}",
                 };
-                // Bounded excerpt: the request carried the key, the response does
-                // not, and a verbose error body must not flood the log.
-                var excerpt = raw.Length > 300 ? raw[..300] + "…" : raw;
-                return (false, null, $"{reason}. {excerpt}");
+                // Error bodies and transport messages can echo credentials or
+                // request evidence. Never return them to the dashboard/audit log.
+                return (false, null, $"{reason}.");
             }
 
             try
@@ -116,9 +127,10 @@ public sealed class GroqClient(HttpClient http, AiOptions options) : IAiProvider
                     ? (false, null, "Groq returned no content.")
                     : (true, content, null);
             }
-            catch (System.Text.Json.JsonException ex)
+            catch (Exception ex) when (ex is System.Text.Json.JsonException
+                                      or InvalidOperationException or ArgumentOutOfRangeException)
             {
-                return (false, null, $"Could not read Groq's response: {ex.Message}");
+                return (false, null, "Groq returned an invalid response envelope.");
             }
         }
     }

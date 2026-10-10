@@ -1,6 +1,13 @@
 # Audit update, 11 October 2026
 
-Recovery audit: network retention verified on disposable targets; crash Start-Job recovery failed parent termination/session exit. See docs/RECOVERY_SAFETY_AUDIT.md. No Pitstop fault injected.
+Recovery audit: network watchdog retention verified on disposable targets. The
+crash Start-Job watchdogs failed parent termination and session exit; both now
+use detached containers and all four scenarios pass. See
+docs/RECOVERY_SAFETY_AUDIT.md. No Pitstop fault was injected by the audit.
+
+Provider audit: wrong-envelope fallback, body deadlines and error-body privacy
+hardened; 132 unit/mocked tests passed. No live provider verification. See
+docs/AI_RELIABILITY_AUDIT.md.
 
 # START HERE
 

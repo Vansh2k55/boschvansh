@@ -58,7 +58,7 @@ public sealed class OllamaClient(HttpClient http, AiOptions options) : IAiProvid
                 ? []
                 : [.. models.Select(m => m?["name"]?.GetValue<string>()).Where(n => n is not null).Select(n => n!)];
         }
-        catch (Exception)
+        catch (Exception) when (!ct.IsCancellationRequested)
         {
             // Unreachable, refused, or not installed. All mean "no local fallback".
             return null;
@@ -97,24 +97,35 @@ public sealed class OllamaClient(HttpClient http, AiOptions options) : IAiProvid
             {
                 Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
             };
-            response = await http.SendAsync(request, timeout.Token);
+            response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             return (false, null, $"Ollama timed out after {options.Ollama.TimeoutSeconds}s. Local inference can be slow on CPU.");
         }
-        catch (HttpRequestException ex)
+        catch (HttpRequestException)
         {
-            return (false, null, $"Could not reach Ollama: {ex.Message}");
+            return (false, null, "Could not reach Ollama.");
         }
 
         using (response)
         {
-            var raw = await response.Content.ReadAsStringAsync(ct);
+            string raw;
+            try
+            {
+                raw = await response.Content.ReadAsStringAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                return (false, null, $"Ollama timed out after {options.Ollama.TimeoutSeconds}s while reading its response.");
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException)
+            {
+                return (false, null, "Could not read Ollama's response.");
+            }
             if (!response.IsSuccessStatusCode)
             {
-                var excerpt = raw.Length > 300 ? raw[..300] + "…" : raw;
-                return (false, null, $"Ollama returned {(int)response.StatusCode}. {excerpt}");
+                return (false, null, $"Ollama returned {(int)response.StatusCode}.");
             }
 
             try
@@ -124,9 +135,10 @@ public sealed class OllamaClient(HttpClient http, AiOptions options) : IAiProvid
                     ? (false, null, "Ollama returned no content.")
                     : (true, content, null);
             }
-            catch (System.Text.Json.JsonException ex)
+            catch (Exception ex) when (ex is System.Text.Json.JsonException
+                                      or InvalidOperationException or ArgumentOutOfRangeException)
             {
-                return (false, null, $"Could not read Ollama's response: {ex.Message}");
+                return (false, null, "Ollama returned an invalid response envelope.");
             }
         }
     }
