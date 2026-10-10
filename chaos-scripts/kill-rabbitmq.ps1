@@ -295,5 +295,19 @@ if (Test-Path $outputDir) {
     Write-Host "Results: $outputDir"
 }
 
-if ($failure -or -not $recovered) { throw "Experiment did not complete successfully. $failure Rollback: $reason" }
+if ($failure -or -not $recovered) {
+    # Ported from Tigisha's original: when recovery fails the broker's own logs
+    # are the first thing anyone will want, and by then the container may be in
+    # a state that is awkward to inspect by hand.
+    Write-Host ''
+    Write-Host '=== broker status and last 30 log lines ==='
+    $previous = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & docker compose -f $composeFile ps -a $service 2>&1 | Out-Host
+        & docker compose -f $composeFile logs --tail=30 $service 2>&1 | Out-Host
+    }
+    finally { $ErrorActionPreference = $previous }
+    throw "Experiment did not complete successfully. $failure Rollback: $reason"
+}
 Write-Host "Broker recovered. Rollback: $reason"
