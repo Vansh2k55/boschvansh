@@ -71,15 +71,41 @@ internal sealed class StubAiHandler : HttpMessageHandler
     }
 }
 
-internal sealed class TestApp(StubAiHandler handler) : WebApplicationFactory<Program>
+/// <summary>Records what it was asked to run. No process, no Docker, no fault.</summary>
+internal sealed class FakeExperimentRunner : IExperimentRunner
+{
+    public List<(string Experiment, int Duration, int? Delay)> Invocations { get; } = [];
+
+    public Task RunAsync(ExperimentSpec spec, int durationSeconds, int? delayMilliseconds)
+    {
+        Invocations.Add((spec.Name, durationSeconds, delayMilliseconds));
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>
+/// Hosts the real application with the AI providers and the experiment runner
+/// replaced.
+/// </summary>
+/// <remarks>
+/// The fake runner is the DEFAULT for every test, not something a test opts
+/// into. An earlier test run started a real experiment against the developer's
+/// stack because the endpoint reached Process.Start and the request happened to
+/// be valid. Opt-in isolation would have had the same hole: the test that
+/// forgets is exactly the one that injects a fault.
+/// </remarks>
+internal class TestApp(StubAiHandler handler) : WebApplicationFactory<Program>
 {
     public StubAiHandler Handler { get; } = handler;
+
+    public FakeExperimentRunner Runner { get; } = new();
 
     protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder) =>
         builder.ConfigureServices(services =>
         {
             services.AddHttpClient<GroqClient>().ConfigurePrimaryHttpMessageHandler(() => Handler);
             services.AddHttpClient<OllamaClient>().ConfigurePrimaryHttpMessageHandler(() => Handler);
+            services.AddSingleton<IExperimentRunner>(Runner);
         });
 }
 

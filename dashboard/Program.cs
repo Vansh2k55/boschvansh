@@ -28,6 +28,13 @@ var stopFile = Path.Combine(chaosScripts, "STOP");
 var resultsDir = Path.Combine(chaosScripts, "results");
 var auditLog = Path.Combine(resultsDir, "audit.jsonl");
 
+var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+// Constructed here so the injected runner and the endpoints share one
+// instance rather than observing different run state.
+var runState = new RunState();
+builder.Services.AddSingleton(runState);
+
 var aiOptions = AiOptions.Load(builder.Configuration);
 builder.Services.AddSingleton(aiOptions);
 // Per-request timeouts are enforced inside each provider, so the HttpClient
@@ -37,6 +44,10 @@ builder.Services.AddHttpClient<OllamaClient>(c => c.Timeout = TimeSpan.FromSecon
 // Mode is persisted server-side: it decides whether a request may leave the
 // machine, so it is not something a browser asserts.
 builder.Services.AddSingleton(_ => new AiModeStore(Path.Combine(resultsDir, "ai-settings.json")));
+// The only component that can start a fault. Registered through DI so an
+// automated test can substitute a fake and never reach Process.Start.
+builder.Services.AddSingleton<IExperimentRunner>(_ => new PowerShellExperimentRunner(
+    repoRoot, chaosScripts, runState, entry => AppendAudit(entry)));
 builder.Services.AddScoped<AiProviderRouter>();
 var app = builder.Build();
 
@@ -49,8 +60,7 @@ var allowlist = ExperimentCatalog.All;
 // every probe time out while the app is healthy on IPv4.
 var siteBaseUrl = Environment.GetEnvironmentVariable("PITSTOP_SITE_URL") ?? "http://127.0.0.1:7005";
 
-var runState = new RunState();
-var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -287,7 +297,7 @@ app.MapPost("/api/ai/explain/{runId}", async (string runId, AiProviderRouter rou
 
 // ---- the only two state-changing endpoints --------------------------------
 
-app.MapPost("/api/experiments/run", async (RunRequest request, CancellationToken ct) =>
+app.MapPost("/api/experiments/run", async (RunRequest request, IExperimentRunner runner, CancellationToken ct) =>
 {
     if (!allowlist.TryGetValue(request.Experiment ?? "", out var spec))
         return Results.BadRequest(new { error = "Not an allowlisted experiment." });
@@ -332,7 +342,7 @@ app.MapPost("/api/experiments/run", async (RunRequest request, CancellationToken
         approvedBy = string.IsNullOrWhiteSpace(request.ApprovedBy) ? "dashboard operator" : request.ApprovedBy,
     });
 
-    _ = Task.Run(() => RunExperimentAsync(spec, duration, delay), CancellationToken.None);
+    _ = Task.Run(() => runner.RunAsync(spec, duration, delay), CancellationToken.None);
     return Results.Accepted($"/api/state", new { started = true, experiment = request.Experiment, durationSeconds = duration, delayMilliseconds = delay });
 });
 
@@ -482,46 +492,6 @@ List<object> ListRuns()
     return rows.OrderByDescending(r => r.Written).Select(r => r.Row).ToList();
 }
 
-async Task RunExperimentAsync(ExperimentSpec spec, int duration, int? delayMilliseconds)
-{
-    var scriptPath = Path.Combine(chaosScripts, spec.Script);
-    var args = new List<string> { "-NoProfile", "-NonInteractive", "-File", scriptPath, spec.DurationParameter, duration.ToString() };
-    if (spec.SupportsDelay && delayMilliseconds is { } ms)
-    {
-        args.Add(spec.DelayParameter!);
-        args.Add(ms.ToString());
-    }
-    if (spec.RequiresExecuteFlag) args.Add("-Execute");
-
-    AppendAudit(new { timestampUtc = DateTime.UtcNow, action = "experiment.started", experiment = spec.Script, durationSeconds = duration });
-
-    try
-    {
-        var psi = new ProcessStartInfo("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = repoRoot };
-        foreach (var a in args) psi.ArgumentList.Add(a);
-        using var process = Process.Start(psi)!;
-        process.OutputDataReceived += (_, e) => { if (e.Data is not null) runState.AppendLog(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) runState.AppendLog(e.Data); };
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-        await process.WaitForExitAsync();
-        runState.Finish(process.ExitCode);
-        AppendAudit(new { timestampUtc = DateTime.UtcNow, action = "experiment.finished", experiment = spec.Script, exitCode = process.ExitCode });
-    }
-    catch (Exception ex)
-    {
-        runState.AppendLog($"Dashboard failed to run the experiment: {ex.Message}");
-        runState.Finish(-1);
-        AppendAudit(new { timestampUtc = DateTime.UtcNow, action = "experiment.failed", experiment = spec.Script, error = ex.Message });
-    }
-
-    // Refresh the assessment so the dashboard reflects the run that just ended.
-    try
-    {
-        await RunProcessAsync("pwsh", new[] { "-NoProfile", "-NonInteractive", "-File", Path.Combine(chaosScripts, "analyze.ps1") }, TimeSpan.FromMinutes(2), CancellationToken.None);
-    }
-    catch (Exception ex) { runState.AppendLog($"Assessment refresh failed: {ex.Message}"); }
-}
 
 async Task<string?> RunProcessAsync(string file, string[] args, TimeSpan timeout, CancellationToken ct)
 {
@@ -557,7 +527,7 @@ record ModuleProbe(string Name, int? StatusCode, bool Healthy, double LatencyMs,
 record RunRequest(string? Experiment, int? DurationSeconds, bool Approved, string? ApprovedBy, int? DelayMilliseconds = null);
 record ModeRequest(string? Mode);
 
-sealed class RunState
+public sealed class RunState
 {
     private readonly object _gate = new();
     private readonly ConcurrentQueue<string> _log = new();
