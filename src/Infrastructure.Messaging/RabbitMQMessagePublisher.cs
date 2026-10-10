@@ -89,14 +89,23 @@ public sealed class RabbitMQMessagePublisher : IMessagePublisher, IDisposable
         Policy
             .Handle<Exception>()
             .WaitAndRetry(9, r => TimeSpan.FromSeconds(5), (ex, ts) => { Log.Error("Error connecting to RabbitMQ. Retrying in 5 sec."); })
-            .Execute(async () =>
-            {
-                var factory = new ConnectionFactory() { VirtualHost = _virtualHost, UserName = _username, Password = _password, Port = _port };
-                factory.AutomaticRecoveryEnabled = true;
-                _connection = await factory.CreateConnectionAsync(_hosts);
-                _channel = await _connection.CreateChannelAsync();
-                await _channel.ExchangeDeclareAsync(_exchange, "fanout", durable: true, autoDelete: false);
-            });
+            .Execute(() => ConnectAsync().GetAwaiter().GetResult());
+    }
+
+    // Must be awaited by the retry policy. Passing an async lambda to
+    // Policy.Execute(Action) binds the Action overload and compiles to async
+    // void: Connect returns before _channel is assigned, so the very next
+    // PublishMessageAsync dereferences null and throws. The caller sees a 500
+    // after its database row has already been committed, which is how an event
+    // goes missing while the write succeeds. Connection failures were also
+    // swallowed rather than retried, for the same reason.
+    private async Task ConnectAsync()
+    {
+        var factory = new ConnectionFactory() { VirtualHost = _virtualHost, UserName = _username, Password = _password, Port = _port };
+        factory.AutomaticRecoveryEnabled = true;
+        _connection = await factory.CreateConnectionAsync(_hosts);
+        _channel = await _connection.CreateChannelAsync();
+        await _channel.ExchangeDeclareAsync(_exchange, "fanout", durable: true, autoDelete: false);
     }
 
     public void Dispose()

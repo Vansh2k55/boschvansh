@@ -26,7 +26,12 @@ public static class Configuration
     public static void UseRabbitMQMessagePublisher(this IServiceCollection services, IConfiguration config)
     {
         GetRabbitMQSettings(config, "RabbitMQPublisher");
-        services.AddTransient<IMessagePublisher>(_ => new RabbitMQMessagePublisher(
+        // Singleton, not transient. The publisher owns a RabbitMQ connection and
+        // channel; registering it per request opened a fresh TCP connection for
+        // every call, left the old ones to the finalizer, and gave each request
+        // a publisher whose connection had only just started being established.
+        // One long-lived connection is also how the client is meant to be used.
+        services.AddSingleton<IMessagePublisher>(_ => new RabbitMQMessagePublisher(
             _host, _virtualHost, _userName, _password, _exchange, _port));
     }
 
