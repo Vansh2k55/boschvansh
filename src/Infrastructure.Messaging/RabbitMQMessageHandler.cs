@@ -85,18 +85,24 @@ public class RabbitMQMessageHandler : IMessageHandler
         Policy
             .Handle<Exception>()
             .WaitAndRetry(9, r => TimeSpan.FromSeconds(5), (ex, ts) => { Log.Error("Error connecting to RabbitMQ. Retrying in 5 sec."); })
-            .Execute(async () =>
-            {
-                var factory = new ConnectionFactory() { VirtualHost = _virtualHost, UserName = _username, Password = _password, Port = _port };
-                _connection = await factory.CreateConnectionAsync(_hosts);
-                _channel = await _connection.CreateChannelAsync();
-                await _channel.ExchangeDeclareAsync(_exchange, "fanout", durable: true, autoDelete: false);
-                await _channel.QueueDeclareAsync(_queueName, durable: true, autoDelete: false, exclusive: false);
-                await _channel.QueueBindAsync(_queueName, _exchange, _routingKey);
-                _consumer = new AsyncEventingBasicConsumer(_channel);
-                _consumer.ReceivedAsync += Consumer_Received;
-                _consumerTag = await _channel.BasicConsumeAsync(_queueName, false, _consumer);
-            });
+            .Execute(() => StartConsumingAsync().GetAwaiter().GetResult());
+    }
+
+    // Must be awaited by the retry policy. Passing an async lambda to
+    // Policy.Execute(Action) compiles to async void: the policy returns before
+    // the connection is set up and any failure is swallowed instead of retried,
+    // which leaves the service running without ever subscribing to its queue.
+    private async Task StartConsumingAsync()
+    {
+        var factory = new ConnectionFactory() { VirtualHost = _virtualHost, UserName = _username, Password = _password, Port = _port };
+        _connection = await factory.CreateConnectionAsync(_hosts);
+        _channel = await _connection.CreateChannelAsync();
+        await _channel.ExchangeDeclareAsync(_exchange, "fanout", durable: true, autoDelete: false);
+        await _channel.QueueDeclareAsync(_queueName, durable: true, autoDelete: false, exclusive: false);
+        await _channel.QueueBindAsync(_queueName, _exchange, _routingKey);
+        _consumer = new AsyncEventingBasicConsumer(_channel);
+        _consumer.ReceivedAsync += Consumer_Received;
+        _consumerTag = await _channel.BasicConsumeAsync(_queueName, false, _consumer);
     }
 
     public async void Stop()
