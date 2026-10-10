@@ -1,9 +1,10 @@
 # START HERE
 
 Recovery document for whichever coding agent picks this up next (Claude Code,
-Antigravity, Codex). Everything below was verified by running it, not inferred.
+Antigravity, Codex). Everything below was verified by running it after PR #1
+merged, not inferred and not carried over from before the merge.
 
-Last updated: 2026-10-10T09:13Z
+Last updated: 2026-10-10, post-merge.
 
 ## Where things are
 
@@ -11,40 +12,29 @@ Last updated: 2026-10-10T09:13Z
 | --- | --- |
 | Repository | `C:\Users\Saurabh\pitstop` |
 | Remote | https://github.com/saurabhshreni-cmyk/bosch-chaos-hackathon |
-| Branch | `main`, at `c7bb102` or later, pushed |
-| Working tree | Clean except for generated `chaos-scripts/results/` (gitignored) |
-| Open PR | [#1](https://github.com/saurabhshreni-cmyk/bosch-chaos-hackathon/pull/1), branch `task2-kill-service` at `d30af72` — **reviewed, verified, conflict-free, NOT merged** |
+| Branch | `main`, synchronised with `origin/main` |
+| Latest commit | run `git log --oneline -1`; the most recent work is the Day 2 analysis design and scorer |
+| Working tree | Clean apart from generated `chaos-scripts/results/` (gitignored) |
+| PR #1 | **Merged** as `12a5245`, verified present and working on `main` |
+| `feature/kill-rabbitmq` | Tigisha's original broker script. **Superseded** — see below |
 
-There is also an untracked nested clone at `pitstop/` inside the repo. It is a
-scratch duplicate, it is gitignored, and nothing depends on it. Ignore or delete it.
+There is an untracked nested clone at `pitstop/`. It is a scratch duplicate, it
+is gitignored, nothing depends on it. Leave it alone.
 
-## Read these next
+## State of the branches
 
-1. `docs/HACKATHON_DAY1_PLAN.md` — requirements and the acceptance checklist.
-2. `docs/PROJECT_STATUS.md` — what is verified, what is not.
-3. `docs/dependency-map.md` — the generated service map.
-4. `AGENTS.md` — conventions and safety rules for this repo.
-
-## The one thing to know
-
-**PR #1 holds the chaos experiment and is not merged yet.** `main` currently has
-the dependency map and the infrastructure fixes but *not* `chaos-scripts/kill-service.ps1`.
-Until the PR merges, the experiment only exists on `task2-kill-service`.
-
-Merging it needs a human click (an agent was blocked from merging without review):
-
-```bash
-gh pr merge 1 --merge
-```
-
-The branch is already merged up to `main` and its compose conflict is resolved, so
-the merge is clean. **This is the highest-priority next action.**
+`feature/kill-rabbitmq` holds the original `kill-rabbitmq.ps1` and an empty
+`docs/rabbitmq-chaos.md`. That script was reworked and the result is already on
+`main`, with the documentation written. **Do not merge that branch** — it would
+regress the file. Tell Tigisha the work landed, and that the changes were the
+safety contract in `AGENTS.md`: baseline, STOP-file kill switch, watchdog,
+threshold abort, endpoint validation and written evidence.
 
 ## Start the application
 
-Already running? `docker compose -f src/docker-compose.yml ps` — 13 containers.
+Probably already running: `docker compose -f src/docker-compose.yml ps` — 13 containers.
 
-From a cold start, in `src/`, build the three base images first, in order:
+Cold start, from `src/`, base images first and in order:
 
 ```bash
 docker build -t pitstop-dotnet-sdk-base:1.0 . -f dotnet-sdk-base-dockerfile
@@ -53,60 +43,98 @@ docker build -t pitstop-dotnet-aspnet-base:1.0 . -f dotnet-aspnet-base-dockerfil
 docker compose up -d --build
 ```
 
-Site at http://localhost:7005. RabbitMQ 15672, MailDev 4000, Seq 5341.
+Site http://localhost:7005 · RabbitMQ 15672 · MailDev 4000 · Seq 5341.
 
-Stop with `docker compose down`. **Do not add `-v`** — that deletes the
+Stop with `docker compose down`. **Never add `-v`** — it deletes the
 `sqlserverdata` volume and every database in it.
 
-## Run the two Day 1 artefacts
+## Run everything
 
 ```powershell
-# Dependency map -> docs/dependency-map.md + chaos-scripts/results/dependency-map/graph.json
-./chaos-scripts/map-dependencies.ps1
-
-# Chaos experiment (only after PR #1 merges)
-./chaos-scripts/kill-service.ps1 -DurationSeconds 30
+./chaos-scripts/map-dependencies.ps1                          # map; read-only
+./chaos-scripts/kill-service.ps1 -DurationSeconds 30          # Workshop crash
+./chaos-scripts/kill-rabbitmq.ps1                             # dry run, changes nothing
+./chaos-scripts/kill-rabbitmq.ps1 -DowntimeSeconds 25 -Execute
+./chaos-scripts/analyze.ps1                                   # score; read-only, no network
 ```
 
-Manual kill switch, from a second terminal at the repo root:
+Manual kill switch, second terminal at the repo root:
 
 ```powershell
 New-Item chaos-scripts/STOP -ItemType File -Force
 ```
 
-Delete that file before the next run or the script refuses to start. If PowerShell
-is killed mid-experiment, restore by hand:
+Delete it before the next run or the script refuses to start. If PowerShell dies
+mid-experiment and the watchdog does not fire:
 
 ```bash
 docker compose -f src/docker-compose.yml start workshopmanagementapi
+docker compose -f src/docker-compose.yml start rabbitmq
 ```
 
-## Verified by running it
+After a broker run, give the publisher a few seconds before starting another
+experiment — the baseline guard will refuse until a write succeeds, which is
+correct behaviour, not a bug.
 
-- All 13 containers up; the four with health checks report healthy.
-- Dependency map: 13 nodes, 40 edges, generated from Compose + appsettings + runtime.
-- Chaos experiment, two full runs. Baseline 15–40ms. Under fault the Workshop
-  module times out at ~5s while Customer and Vehicle stay at ~20ms — blast radius
-  contained, and that empirically confirms the map's `webapp -> workshopmanagementapi` edge.
-- Rollback on max duration: verified, recovered.
-- Rollback on manual kill switch: verified, recovered.
+## Verified post-merge
+
+- 13 containers up, health-checked ones healthy.
+- Compose valid; single top-level `volumes:` key (the merge conflict fix held).
+- Map regenerated: 13 nodes, 40 edges.
+- `kill-service`: max-duration rollback, **threshold rollback** and manual kill
+  switch all exercised; recovered each time.
+- Remote-endpoint guard refused to run with `DOCKER_HOST` set to a working
+  endpoint, before touching anything.
+- `kill-rabbitmq`: dry run, baseline precondition abort, max-duration rollback,
+  manual kill switch; recovery 19.28s.
+- `analyze.ps1` scored 7 recorded runs.
+
+## The finding that matters
+
+During a broker outage the module pages stay perfectly healthy — unchanged
+latency, 200 throughout. The damage is invisible from the UI.
+
+`POST /api/customers` returns **500**, but the row **is committed**. The customer
+exists in Customer Management while `CustomerRegistered` was never published and
+never will be, because nothing recorded it to replay. The workshop handler, the
+invoice service and the notification service never learn the customer exists, and
+the caller's natural retry creates a duplicate rather than repairing anything.
+
+Reproduced three times. Recorded as `DivergenceDetected` in `report.json`. The
+root cause hypothesis — no transactional outbox — is in `docs/rabbitmq-chaos.md`.
 
 ## Not done
 
-- No AI/LLM integration at all. No Groq, no Gemini, no key, no fallback path. (P2)
-- Only one failure type. No network delay, no broker kill, no database fault. (P2/P3)
-- No resilience score, no report generation, no dashboard. (P2/P3)
-- Threshold-breach rollback is implemented but never exercised — the other two
-  rollback paths were. Testing it means making Customer or Vehicle unhealthy.
-- Six services have no Docker health check, so the map shows `no healthcheck`
-  for them. Only the three APIs and the web app are probe-able.
+- **No LLM call exists anywhere in the repo.** No key, no network call. The
+  design and the deterministic scorer are built; the narrative layer, Groq or
+  Gemini integration, and experiment planning are not. This is step 3 onward in
+  `docs/AI_ANALYSIS_DESIGN.md`.
+- No network-delay or database experiment. No dashboard.
+- Watchdog restore untested in both experiments (needs PowerShell killed mid-run).
+- Threshold rollback untested in `kill-rabbitmq.ps1` — pages stay healthy during
+  a broker outage so there is nothing to trip. Same code is verified in
+  `kill-service.ps1`.
+- The broker experiment infers non-delivery from the broker being down rather
+  than inspecting consumer state.
+
+## Highest-priority next action
+
+**Build the narrative layer on `analyze.ps1`** — step 3 in
+`docs/AI_ANALYSIS_DESIGN.md`. The scorer, the findings and the evidence files
+already exist, so this is additive: read `$env:GROQ_API_KEY`, send the extracted
+facts, require an `evidence` array on every hypothesis, drop anything that cites
+nothing. Keep every number deterministic.
+
+If that is blocked, the next most valuable thing is the network-delay experiment
+(task 4), which shows graded degradation rather than on/off.
 
 ## Risks and safety rules
 
-- Experiments may target **only** containers in this Compose project. The script
-  enforces a local Windows named-pipe Docker context and refuses a remote `DOCKER_HOST`.
-- The kill switch is plain file and timer logic. Keep it that way — no LLM on the
-  rollback path.
+- Experiments target **only** containers in this Compose project. Both scripts
+  enforce a local Windows named-pipe Docker context and refuse a remote
+  `DOCKER_HOST`. This is tested.
+- The kill switch is file and timer logic. **Keep every model off the rollback
+  path, and off every number in the report.**
 - `src/*/appsettings.Production.json` carries the upstream sample's hardcoded SQL
-  and RabbitMQ passwords. They came from EdwinVW/pitstop and are sandbox-only.
-  Do not copy the pattern into anything new, and do not put real secrets there.
+  and RabbitMQ passwords. Sandbox-only, inherited from EdwinVW/pitstop. Do not
+  imitate the pattern and never put a real secret there.

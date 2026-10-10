@@ -1,89 +1,119 @@
 # Project status
 
-Last updated: 2026-10-10T09:13Z · `main` @ `c7bb102` or later (pushed, tree clean)
+Last updated: 2026-10-10, after PR #1 was merged · `main` (see `docs/HANDOVER.md`
+for the exact commit) · working tree clean
 
-The distinction that matters below: **verified** means it was run and the output
-observed in this session. **Exists** means the code is there but nobody has
-watched it work.
+**Verified** means it was run after the merge and the output observed.
+**Exists** means the code is there but nobody has watched it work.
 
-## Day 1 acceptance checklist
+## Day 1 acceptance checklist — reproduced after the merge
+
+Everything below was re-run from `main` after PR #1 merged. These are not the
+pre-merge results carried forward.
 
 | # | Requirement | State | Evidence |
 | --- | --- | --- | --- |
-| A | Sample app running end to end in the sandbox | **Verified** | 13 containers up; APIs and web app healthy; module pages return 200 |
-| B | Services, dependencies and data flows mapped | **Verified** | `docs/dependency-map.md`, 13 nodes / 40 edges, regenerated three times |
-| C | Monitoring baseline under steady load | **Verified, on PR #1** | 3 baseline rounds × 3 modules per run; 15–40ms, 0 errors |
-| D | One controlled failure injected and observed | **Verified, on PR #1** | 2 runs; Workshop times out ~5s, Customer/Vehicle unaffected |
-| E | Automatic stop/rollback, tested once | **Verified, on PR #1** | Max-duration rollback and manual kill switch both exercised; recovery confirmed both times |
-| F | Short demo: app running, one safe failure, impact visible | **Verified** | Demo script in `docs/HACKATHON_DAY1_PLAN.md` |
+| A | Sample app running end to end | **Verified** | 13 containers up; the 4 with health checks healthy; module pages 200 |
+| B | Dependencies and data flows mapped | **Verified** | Regenerated post-merge: 13 nodes, 40 edges |
+| C | Monitoring baseline under steady load | **Verified** | 3 rounds × 3 modules per run; 11–51ms, 0 errors |
+| D | Controlled failure with observable impact | **Verified** | Workshop crash and broker outage, both reproduced post-merge |
+| E | Automatic stop/rollback, tested | **Verified** | All three rollback paths exercised, plus the endpoint guard |
+| F | Short demo | **Verified** | Script in `docs/HACKATHON_DAY1_PLAN.md` |
 
-**The Day 1 minimum is met** — running app, dependency map, one safe failure
-injection with a working kill switch — but C, D and E live on PR #1 and are not
-on `main` yet. Merging PR #1 is what makes the checklist true for a fresh clone.
+**The Day 1 minimum is met on `main`**, and now from a fresh clone rather than
+from a branch.
 
-## What landed this session
+## Post-merge verification log
 
-| Commit | Change |
-| --- | --- |
-| `763b52a` | Four fixes that make the stack boot healthy end to end |
-| `ae492ca` | Dependency and data-flow mapper, overlay, generated map |
+| Check | Command | Result |
+| --- | --- | --- |
+| Merge present | `git log --oneline origin/main` | `12a5245 Merge pull request #1` present |
+| Compose valid | `docker compose -f src/docker-compose.yml config --quiet` | **Pass** — exit 0 |
+| No duplicate YAML key | `grep -c '^volumes:' src/docker-compose.yml` | **Pass** — 1 (the conflict fix survived) |
+| Dependency map | `./chaos-scripts/map-dependencies.ps1` | **Pass** — 13 nodes, 40 edges |
+| Max-duration rollback | `./chaos-scripts/kill-service.ps1 -DurationSeconds 25` | **Pass** — "Maximum fault duration reached", recovered |
+| Threshold rollback | `./chaos-scripts/kill-service.ps1 -DurationSeconds 50 -MaxUnaffectedLatencyMs 1` | **Pass** — aborted after 1 probe, "Safety threshold breached: CustomerManagement" |
+| Manual kill switch | create `chaos-scripts/STOP` mid-run | **Pass** — "Manual kill switch", recovered |
+| Remote endpoint guard | `DOCKER_HOST` set to a *working* endpoint | **Pass** — refused before injecting; container untouched |
+| Broker outage | `./chaos-scripts/kill-rabbitmq.ps1 -DowntimeSeconds 25 -Execute` | **Pass** — recovered in 19.28s, divergence detected |
+| Broker kill switch | create `chaos-scripts/STOP` mid-run | **Pass** — "Manual kill switch", recovered |
+| Resilience scorer | `./chaos-scripts/analyze.ps1` | **Pass** — 7 runs scored |
 
-`763b52a` in detail — the stack did not reach a usable steady state before it:
+The threshold path was previously untested. It is exercised by setting the
+unaffected-latency limit to 1ms, so a module's normal ~20ms trips it — a real
+test of the rollback logic that damages nothing.
 
-- `RabbitMQMessageHandler` passed an async lambda to Polly's `Policy.Execute`,
-  binding the `Action` overload and compiling to `async void`. The retry policy
-  returned before the connection existed and swallowed failures, so event-driven
-  services ran without ever subscribing to their queue.
-- `WorkshopManagementAPI` resolves its event store from a transient repository,
-  so the store and its health check only appeared on the first request.
-- The aspnet base image has no `curl`, which every service's `HEALTHCHECK` calls,
-  so containers were permanently unhealthy.
-- SQL Server and RabbitMQ used host bind mounts that fail on Windows/OneDrive
-  paths, and services used bare `depends_on`, so APIs started before their
-  dependencies accepted connections.
+## PR #1 — merged
 
-## Pull requests
+[#1 Add Workshop chaos experiment with monitoring and rollback](https://github.com/saurabhshreni-cmyk/bosch-chaos-hackathon/pull/1),
+by AP16112, merged as `12a5245`. Verified present and working on `main`.
 
-| PR | Branch | Author | Review | Merge |
-| --- | --- | --- | --- | --- |
-| [#1 Add Workshop chaos experiment with monitoring and rollback](https://github.com/saurabhshreni-cmyk/bosch-chaos-hackathon/pull/1) | `task2-kill-service` @ `d30af72` | AP16112 | **Approved — ran it twice, both rollback paths work** | **Pending.** Agent was blocked from merging without review; needs `gh pr merge 1 --merge` |
+During integration Git auto-merged `src/docker-compose.yml` cleanly but produced
+**two top-level `volumes:` keys** — valid-looking text, broken YAML. Resolved on
+the branch before the merge; confirmed still correct on `main`.
 
-Review notes: good work — the watchdog job restores the container even if the
-main loop stalls, probes assert on page content as well as status code, and the
-context check refuses a non-local Docker endpoint.
-
-One real defect was found and fixed during integration. Git auto-merged
-`src/docker-compose.yml` cleanly but the result had **two top-level `volumes:`
-keys** — the PR added one at the top of the file, `main` already had one at the
-bottom. Textually clean, semantically broken YAML. Resolved on the PR branch by
-keeping `main`'s block (a superset: it also declares `rabbitmqdata`), then
-validated with `docker compose config --quiet`.
-
-PR #1's README lists "unhealthy container but working pages, images may lack
-curl" as an open troubleshooting item. `763b52a` fixes that; the note can be
-dropped from the README after the merge.
+PR #1's README still lists "images may lack curl" as a troubleshooting item.
+That was fixed in `763b52a`; the note is stale and should be dropped.
 
 ## Measurements
 
+**Workshop API crash** — the failure is loud and contained.
+
 | Phase | Customer | Vehicle | Workshop |
 | --- | --- | --- | --- |
-| Baseline | 15–40ms, 200 | 15–45ms, 200 | 26–42ms, 200 |
-| Under fault | 16–30ms, 200 | 16–41ms, 200 | ~5000ms, timeout |
-| Recovered | 13–29ms, 200 | 14–42ms, 200 | 390–530ms, 200 |
+| Baseline | 15–40ms, 200 | 13–30ms, 200 | 22–172ms, 200 |
+| Under fault | 16–30ms, 200 | 14–22ms, 200 | **~5000ms, timeout** |
+| Recovered | 14–21ms, 200 | 14–33ms, 200 | 390–490ms, 200 |
 
-Recovery took one to two probe rounds after the container restarted — the first
-post-restart request pays .NET and EF warm-up, which is why Workshop sits near
-500ms while the others are back at 20ms.
+**Broker outage** — the failure is silent, and that is the finding.
+
+| | Baseline | Broker down | Recovered |
+| --- | --- | --- | --- |
+| Module pages | 200, 13–51ms | **200, 9–29ms (unchanged)** | 200, 11–24ms |
+| `POST /api/customers` | 201 | **500** | 201 |
+
+All three pages stayed healthy for the whole broker outage, because each API
+reads from its own database and never touches the broker. Monitoring page health
+alone would have reported this outage as a non-event.
+
+The write path tells the truth. During the outage the API returned 500 **but the
+row was committed** (`OutageWriteRowCommitted: true`). A customer exists whom no
+downstream service will ever hear about, and nothing replays, because the event
+was never recorded anywhere. Reproduced in three runs.
+
+## Resilience scores
+
+From `chaos-scripts/analyze.ps1`, by the published rules in
+`docs/AI_ANALYSIS_DESIGN.md`. No model produced any of these numbers.
+
+| Experiment | Score | Note |
+| --- | --- | --- |
+| kill-service (full run) | 80, 73 | Loses points on graceful degradation — a hard 5s timeout, not a fast fail |
+| kill-service (threshold abort) | 98 | **Low confidence, 1 fault probe.** Scored high because little was measured |
+| kill-rabbitmq (full run) | 65, 62 | Data integrity scores 0 — the divergence |
+| kill-rabbitmq (early abort) | 36 | Baseline guard refused to inject; no fault |
+
+The broker outage scoring below the crash is the intended behaviour: a silent
+inconsistency is worse than a visibly broken page.
 
 ## Open work
 
-**P2 — not started.** No AI or LLM integration of any kind: no Groq, no Gemini,
-no API key configured, no deterministic fallback. No resilience score, no
-generated report. Day 2 depends on this.
+**P2 — designed, partially built.** `docs/AI_ANALYSIS_DESIGN.md` sets out the
+pipeline, the scoring rules and the safety boundary. Step 1, the deterministic
+scorer, is **built and working**. The narrative LLM layer, Groq/Gemini
+integration and experiment planning are **not built** — no key, no API call
+anywhere in the repo yet.
 
-**P2/P3 — not started.** Only one failure type exists. Network delay, broker
-kill and database fault are assigned but unwritten. No dashboard.
+**P3 — not started.** Network-delay and database experiments. No dashboard.
 
-**Known gaps.** The threshold-breach rollback path is implemented but never
-exercised. Six of ten services have no Docker health check. `chaos-scripts/results/`
-is gitignored, so evidence for submission must be copied out of band.
+**Known gaps.**
+- The watchdog restore path is implemented in both experiments but never tested
+  by killing PowerShell mid-run.
+- Threshold rollback is verified in `kill-service.ps1`, not in `kill-rabbitmq.ps1`
+  — module pages stay healthy during a broker outage, so there is nothing to trip.
+- The broker experiment infers non-delivery from the broker being down; it does
+  not inspect consumer state.
+- Six of ten services have no Docker health check.
+- Each broker run leaves `chaos-*` probe customers in the database.
+- `chaos-scripts/results/` is gitignored, so evidence for submission must be
+  copied out of band.

@@ -17,10 +17,12 @@ The application is upstream code. Our work lives in `chaos-scripts/` and `docs/`
 ## Layout
 
 ```
-chaos-scripts/   Experiments and the dependency mapper. Our code.
+chaos-scripts/   Experiments, the dependency mapper and the scorer. Our code.
   map-dependencies.ps1     Builds the service map (read-only, safe to run)
   dependency-overlay.json  Hand-curated RabbitMQ event topology
-  kill-service.ps1         Workshop API crash experiment (arrives with PR #1)
+  kill-service.ps1         Workshop API crash experiment
+  kill-rabbitmq.ps1        Broker outage experiment (needs -Execute to inject)
+  analyze.ps1              Deterministic resilience scorer (read-only, no network)
   results/                 Generated evidence, gitignored
 docs/            Plan, status, handover, team tasks, generated map, experiment write-ups
 src/             Upstream Pitstop. Change only to fix something genuinely broken.
@@ -35,8 +37,11 @@ docker compose -f src/docker-compose.yml down        # stop, keep data
 ```
 
 ```powershell
-./chaos-scripts/map-dependencies.ps1                 # regenerate the map
-./chaos-scripts/kill-service.ps1 -DurationSeconds 30 # run the experiment
+./chaos-scripts/map-dependencies.ps1                        # regenerate the map
+./chaos-scripts/kill-service.ps1 -DurationSeconds 30        # Workshop API crash
+./chaos-scripts/kill-rabbitmq.ps1                           # dry run, changes nothing
+./chaos-scripts/kill-rabbitmq.ps1 -DowntimeSeconds 25 -Execute
+./chaos-scripts/analyze.ps1                                 # score every recorded run
 ```
 
 `docker compose down -v` destroys the `sqlserverdata` volume and every database
@@ -60,7 +65,9 @@ These are the point of the project. Treat them as binding.
    watchdog job for exactly this. Copy that pattern.
 5. **The model recommends, it never executes.** Validate every suggestion against
    an allowlist before a human is offered it. Never run model-generated shell
-   commands.
+   commands. **No score, no number and no ranking may come from a model** — they
+   come from published rules in code, so they are reproducible and checkable.
+   See `docs/AI_ANALYSIS_DESIGN.md`.
 6. **Secrets come from environment variables.** Never commit a key, never print
    one in logs, docs or screenshots.
 

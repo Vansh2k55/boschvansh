@@ -21,8 +21,11 @@ Shared ground rules:
 
 **Done:** repo structure, infrastructure fixes, dependency map, PR review.
 
-**Next:** merge PR #1 (`gh pr merge 1 --merge`), then fold the Day 1 evidence into
-the README and drop its now-stale "images may lack curl" troubleshooting note.
+**Done since:** PR #1 merged, Day 1 reproduced from `main`, broker experiment
+integrated, Day 2 analysis design and deterministic scorer built.
+
+**Next:** fold the Day 1 evidence into the README and drop its now-stale "images
+may lack curl" troubleshooting note — that was fixed in `763b52a`.
 
 Deliverable: `main` carries a complete, reproducible Day 1. Keep `docs/PROJECT_STATUS.md`
 and `docs/HANDOVER.md` current — they are how the next agent resumes.
@@ -35,8 +38,12 @@ and `docs/HANDOVER.md` current — they are how the next agent resumes.
 switch, threshold rollback, recovery check, JSON/CSV evidence. Two full runs
 observed; both the max-duration and manual-kill-switch rollback paths work.
 
-**Next, if you have time:** exercise the threshold-breach path once so all three
-rollback routes have evidence, and record what you did to trigger it.
+**Threshold path now covered.** Running with `-MaxUnaffectedLatencyMs 1` makes a
+module's normal ~20ms trip the limit, which exercises the rollback for real and
+damages nothing. All three rollback routes now have evidence.
+
+**Next, if you have time:** test the watchdog by killing PowerShell mid-run — it
+is the one safety path still unproven in both experiments.
 
 Files: `chaos-scripts/kill-service.ps1`, `docs/kill-service.md`.
 
@@ -44,22 +51,23 @@ Files: `chaos-scripts/kill-service.ps1`, `docs/kill-service.md`.
 
 ## 3 — Tigisha P. Pradhan · RabbitMQ failure experiment
 
-Stop the broker and show what eventual consistency actually costs. This is the
-highest-value experiment left: the map puts `rabbitmq` behind four publishers
-and four consumers.
+**Landed on `main`.** Your script was the basis; it was reworked to meet the
+safety contract in `AGENTS.md` and extended to measure the write path, then
+verified over four runs. `feature/kill-rabbitmq` is superseded — do not merge it.
 
-The interesting result is not an error page — the APIs keep serving reads. It is
-that a customer registered during the outage does not reach the workshop handler,
-the invoice service or the notification service. Measure that gap, then measure
-how much of it drains once the broker returns.
+What was added and why: baseline rounds, STOP-file kill switch, watchdog
+restore, threshold abort, local-endpoint validation and written evidence. The
+dry-run `-Execute` gate you wrote was kept, as the operator-approval step.
 
-- Acceptance: baseline captured; broker stopped for a bounded window; at least
-  one event published during the outage and tracked; recovery and queue drain
-  measured; rollback on duration, threshold and STOP file; evidence written.
-- Depends on PR #1 merging first (copy its structure).
-- Files: `chaos-scripts/kill-broker.ps1`, `docs/kill-broker.md`.
+It also had to measure something different from what we expected. The module
+pages stay completely healthy during a broker outage, so the experiment writes a
+customer during the fault — which exposed that the row commits while the event is
+never published. That is the project's strongest finding so far. See
+`docs/rabbitmq-chaos.md`.
 
----
+**Next, if you want it:** confirm non-delivery directly by inspecting consumer
+state or the audit log, instead of inferring it from the broker being down. That
+would turn a strong inference into proof.
 
 ## 4 — Vansh Makhija · network delay experiment
 
@@ -82,10 +90,16 @@ the delay must be the rollback, and it must work even if the script dies.
 Two pieces. **Do the AI piece first** — it is a P2 gap with nothing behind it,
 and Day 2 scoring leans on it.
 
-**AI analysis.** Read `chaos-scripts/results/dependency-map/graph.json` and an
-experiment's `report.json`, produce a ranked experiment plan, an analysis of what
-the failure revealed, and remediation recommendations. Groq or Gemini free tier,
-whichever is less friction — check current free-tier limits before committing.
+**AI analysis — design done, step 1 built.** Read `docs/AI_ANALYSIS_DESIGN.md`
+first. The deterministic scorer (`chaos-scripts/analyze.ps1`) already reads
+`graph.json` and every `report.json`, scores five documented dimensions and emits
+findings. Your job is the narrative layer on top: `$env:GROQ_API_KEY`, send the
+extracted facts, require an `evidence` array on every hypothesis, drop anything
+citing nothing. Then the allowlist-constrained experiment planner.
+
+Groq is recommended over Gemini in the design — OpenAI-compatible REST means no
+new dependency in a PowerShell repo. Check current free-tier models and limits
+before committing to a model id.
 
 Hard constraints, not suggestions:
 - API key from an environment variable. Never in Git, logs or screenshots.
@@ -106,11 +120,13 @@ and a shorter window than the Workshop experiment.
 
 ## Suggested order for the remaining time
 
-1. Merge PR #1 — unblocks everyone copying its structure. *(Saurabh, now)*
-2. AI analysis — biggest scoring gap, zero progress. *(Omkar)*
-3. RabbitMQ experiment — best resilience story. *(Tigisha)*
-4. Network delay — shows graded degradation, not just on/off. *(Vansh)*
-5. Database experiment and threshold-path evidence. *(Omkar, Arpit)*
+1. **Narrative layer on `analyze.ps1`** — the only P2 gap left, and everything it
+   needs already exists. *(Omkar)*
+2. **Network delay** — shows graded degradation rather than on/off. *(Vansh)*
+3. **Database experiment** — widest blast radius, so tighter limits and a shorter
+   window than the others. *(Omkar)*
+4. **Prove non-delivery** in the broker experiment instead of inferring it. *(Tigisha)*
+5. **Watchdog test** — kill PowerShell mid-run; the last unproven safety path. *(Arpit)*
 
-Keep P0 intact. If the time runs out, a working demo of what exists beats a
-half-finished AI integration.
+Keep P0 intact. A working demo of what exists beats a half-finished AI
+integration, and no number in a report may come from a model.
