@@ -349,6 +349,59 @@ unchanged. See `docs/PR_REVIEW_LOG.md`.
 **Tests: 137 passing** (114 + 18 from PR #5 + 5 for the upstream-message
 adaptation). Build succeeded.
 
+## Phase 6 - Safety and regression hardening (complete)
+
+Acceptance was: safety tests pass with providers mocked as failing, and the
+RabbitMQ divergence stays visible and reproducible. Both hold.
+
+| Item | Evidence |
+| --- | --- |
+| Crash-experiment watchdogs survive a hard parent kill | `tests/disposable_recovery_audit.py --execute-disposable`: all four scenarios true, 0 resources left, 13 Pitstop containers untouched |
+| network-delay watchdog retained when cleanup fails | Same harness, `Remove-Shaping` forced to throw: shaping retained, then cleared by the watchdog |
+| **kill-rabbitmq threshold rollback** | `tests/recovery_contract_tests.ps1`: 14 assertions, no live Docker or HTTP. The real fault loop is extracted and driven with synthetic telemetry, asserting threshold-by-unhealthy, threshold-by-latency and the STOP path |
+| Test isolation | Every test host substitutes a fake `IExperimentRunner`; valid approved requests for all three experiments reach only the fake |
+| Provider failure cannot bypass safety | Validation and approval are in front of the runner, not inside it; covered by the mode and discovery tests |
+| RabbitMQ divergence still visible | Reproduced in 4 runs; surfaced as a high-severity finding with high confidence |
+
+**Threshold semantics were checked rather than assumed.** `kill-rabbitmq`
+holds *all three* modules to the threshold, because during a broker outage
+every read path should stay healthy - unlike `kill-service`, which excludes
+its target. The contract test exercises that logic directly, so no live
+broker is stopped by an automated test.
+
+The restore and recovery half of that path is shared code: the `finally`
+block and recovery loop are identical regardless of which reason ended the
+fault loop, and they are exercised by the max-duration and kill-switch runs
+already recorded. That is a code-structure argument, not execution evidence,
+and is stated as such.
+
+## Phase 7 - Integration and final verification (complete, one blocker)
+
+Full end-to-end demonstration run on 11 October against the live stack:
+
+| Step | Result |
+| --- | --- |
+| Healthy baseline | 13/13 services, all three modules 200 in 9-15ms |
+| Dependency map | 13 nodes, 40 edges; ranking now correct (logserver 9, sqlserver 6, rabbitmq 4) |
+| Registry vs prepared | 3 executable, 2 prepared-not-executable |
+| Preflight | passed, no blockers |
+| Approval gate | request without approval **refused** |
+| Approved injection | accepted, 40s requested |
+| Observed impact | Workshop timed out at 6015ms; Customer 11.1ms and Vehicle 8.8ms unaffected |
+| Kill switch | engaged mid-fault; fault truncated to **31.6s of 40s** |
+| Verified recovery | all modules 200; recovery 2.9s, measured not inferred |
+| History and audit | run recorded; audit shows approval, start, killswitch, finish, clear |
+| Deterministic assessment | 25 runs scored; kill-rabbitmq 67, kill-service 77, network-delay 100 |
+| AI analysis | Ollama, readable citations, and it stated what the evidence does **not** establish |
+| Clean final state | no shaping, no watchdogs, no STOP file, nothing running |
+
+The AI explanation volunteered: *"No evidence supports claims about data
+integrity, as no write path was exercised."* That is the behaviour Phase 4
+asked for - the model marking missing evidence rather than filling the gap.
+
+**Blocked:** Groq live verification. No API key is configured, so every Groq
+path is covered by a stubbed transport only. This is not claimed as verified.
+
 ---
 
 ## Remaining
@@ -357,9 +410,9 @@ adaptation). Build succeeded.
 | --- | --- |
 | 4 — Self-analysis and experiment discovery | **Complete.** |
 | 5 — Experiment registry and `network-delay` | **Complete.** Three registered experiments. |
-| 6 — Safety hardening | **Partly done** via the guards above. Watchdog-under-kill remains untested. |
-| 7 — Integration and live verification | **Not started.** Groq has never run live - no key. |
-| 8 — Final report | Pending. |
+| 6 — Safety hardening | **Complete.** All rollback paths verified. |
+| 7 — Integration and live verification | **Complete except Groq live**, which is blocked on a key. |
+| 8 — Final report | **Delivered.** |
 
 ## Known gaps, unchanged
 

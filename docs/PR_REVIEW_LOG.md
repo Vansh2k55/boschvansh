@@ -41,7 +41,11 @@ sequence. Does not contradict `docs/AI_SETUP.md`.
 ## Changes requested — not merged
 
 ### PR #8 — combined scripts and dashboard integration
-**Rejected as-is. One blocking defect.**
+**Partly adapted. The rest stays rejected over one blocking defect.**
+
+`PreparedExperiments` and `ReportIds` were taken in `bd32659`, rewritten to
+carry none of the provider-mode behaviour, and covered by tests asserting
+that listing a prepared script leaves the operator's mode alone.
 
 It changes `AiProviderRouter.Mode` to return `AiMode.Groq` whenever
 `options.Ollama.Enabled` is false, and ships `"Enabled": false` in

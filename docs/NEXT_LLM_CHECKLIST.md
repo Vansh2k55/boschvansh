@@ -80,7 +80,7 @@ MailDev 4000 · Seq 5341. **Use `127.0.0.1`, not `localhost`, for probes** — a
 | **Groq live** | **UNVERIFIED.** No key has ever been configured. All 114 tests use a stubbed transport. | One real request succeeding with `GROQ_API_KEY` set. Never commit the key. |
 | **RabbitMQ event loss** | **REAL AND OPEN.** During a genuine broker outage a customer row commits while its event is never published. No transactional outbox exists. The spurious 30% on a *healthy* system was fixed in `649461b`. | An outbox, implemented and tested, as its own scoped change. Until then do not describe the system as resilient. |
 | **Watchdog for `kill-service` / `kill-rabbitmq` after hard kill** | **WAS BROKEN, NOW FIXED AND VERIFIED.** PR #7 proved all four scenarios failed. Both now use `Start-RestartWatchdog` (detached container); the same harness reports all four true. See `b037041`. | Closed. |
-| **`kill-rabbitmq` threshold rollback** | **UNVERIFIED.** Module pages stay healthy during a broker outage, so nothing naturally trips it. | Run with `-MaxUnaffectedLatencyMs 1`, the trick that worked for `kill-service`. |
+| **`kill-rabbitmq` threshold rollback** | **VERIFIED.** `tests/recovery_contract_tests.ps1` drives the real fault loop with synthetic telemetry and asserts both threshold triggers and the STOP path, without stopping the live broker. | Closed. |
 | Model discovery quality | Known | `qwen3.5:4b` writes weak `failureMode` text while citing accurate evidence. Safety is unaffected. A larger model or Groq improves it. |
 | `pitstop-netem:1.0` | Platform note | Local build required; Linux containers; needs `NET_ADMIN` and a local Windows named-pipe Docker context. `--pull=never` means a missing image fails loudly. |
 
@@ -94,7 +94,7 @@ Full reasoning in `docs/PR_REVIEW_LOG.md`. Merged: #4, #5, #6, #7.
 
 | PR | State | Why |
 | --- | --- | --- |
-| #8 combined scripts + dashboard | **Changes requested** | Forces `AiMode.Groq` whenever `Ollama.Enabled` is false, and ships it false. An operator selecting Ollama-only would have requests sent to Groq - the inverse of their choice, and a break of a tested guarantee. Also keeps two evidence resolvers. `PreparedExperiments` in it is good and worth taking once fixed. |
+| #8 combined scripts + dashboard | **Partly adapted; rest still declined** | `PreparedExperiments` and `ReportIds` were taken without the provider-mode override. The remainder stands rejected: | Forces `AiMode.Groq` whenever `Ollama.Enabled` is false, and ships it false. An operator selecting Ollama-only would have requests sent to Groq - the inverse of their choice, and a break of a tested guarantee. Also keeps two evidence resolvers. `PreparedExperiments` in it is good and worth taking once fixed. |
 | #3 API pause experiments | **Changes requested** | Superseded in scope by #8 (same scripts, cannot merge both). Missing `Assert-SandboxContainer`, and no independent recovery - a paused container stays paused if the orchestrator dies, the same defect just fixed for the crash experiments. Its `analyze.ps1` change is sound and can be taken alone. |
 | #2 AI agent | **Not merged** | Unchanged from the Phase 1 decision; techniques already adapted. |
 
