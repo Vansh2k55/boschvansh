@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-10-10T09:13Z · `main` @ `ae492ca` (pushed, tree clean)
+Last updated: 2026-10-10T09:13Z · `main` @ `c7bb102` or later (pushed, tree clean)
 
 The distinction that matters below: **verified** means it was run and the output
 observed in this session. **Exists** means the code is there but nobody has
