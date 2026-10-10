@@ -1,3 +1,7 @@
+# Audit update, 11 October 2026
+
+Recovery audit: network retention verified on disposable targets; crash Start-Job recovery failed parent termination/session exit. See docs/RECOVERY_SAFETY_AUDIT.md. No Pitstop fault injected.
+
 # Project status
 
 Last updated: 2026-10-10, after PR #1 was merged · `main` (see `docs/HANDOVER.md`
