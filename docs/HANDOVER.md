@@ -13,7 +13,8 @@ Last updated: 2026-10-10, after the dashboard landed.
 | Remote | https://github.com/saurabhshreni-cmyk/bosch-chaos-hackathon |
 | Branch | `main`, synchronised with `origin/main` |
 | Latest commit | `git log --oneline -1` — most recent work is the publish-integrity finding |
-| Working tree | Clean apart from gitignored `chaos-scripts/results/` and `dashboard/bin|obj` |
+| Working tree | Clean apart from gitignored `chaos-scripts/results/` and build output |
+| Checkpoint tag | `pre-groq-migration` marks the last xAI-based commit |
 | PR #1 | **Merged** as `12a5245`. No open PRs. |
 | `feature/kill-rabbitmq` | **Deleted** — its one unique behaviour was ported first (`d4685e5`) |
 | `task2-kill-service` | PR #1's merged branch, still present. Safe to delete; nobody asked. |
@@ -34,8 +35,8 @@ docker build -t pitstop-dotnet-aspnet-base:1.0 . -f dotnet-aspnet-base-dockerfil
 docker compose up -d --build
 ```
 
-Dashboard (set the Grok key first if you want the AI panels — see
-`docs/GROK_SETUP.md`; everything works without it):
+Dashboard. The AI layer works out of the box via local Ollama; set
+`GROQ_API_KEY` for the faster cloud path. See `docs/AI_SETUP.md`:
 
 ```powershell
 dotnet run --project dashboard/Dashboard.csproj --urls http://localhost:5280
@@ -124,9 +125,9 @@ outbox and is the largest remaining piece of work.
 
 ## Not done
 
-- Grok integration is **built and tested, but has never run against the real
-  API** — no key was available in the session that wrote it. The 29 tests use a
-  stubbed transport. First real call is the one thing still unverified.
+- **Groq has never run against the real API** — no key was available. Its path
+  is covered by 42 stubbed tests but is unverified live. Ollama **has** been
+  verified end to end against the real local model.
 - Durable publishing (transactional outbox). The spurious 30% is fixed; a real broker outage still loses the event.
 - No network-delay or database experiment.
 - Watchdog restore untested in both experiments (needs PowerShell killed mid-run).
@@ -138,8 +139,9 @@ outbox and is the largest remaining piece of work.
 
 ## Highest-priority next action
 
-Set `XAI_API_KEY` (see `docs/GROK_SETUP.md`) and make one real Grok call, to
-confirm the live contract matches what the stubbed tests assert.
+Set `GROQ_API_KEY` (see `docs/AI_SETUP.md`) and make one real Groq call, to
+confirm the live contract matches what the stubbed tests assert. The local
+Ollama path already works without it.
 
 After that, the transactional outbox (option C in `docs/publish-integrity.md`),
 which is the one part of the integrity problem still open.

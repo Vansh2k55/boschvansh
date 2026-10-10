@@ -25,8 +25,8 @@ chaos-scripts/   Experiments, the dependency mapper and the scorer. Our code.
   analyze.ps1              Deterministic resilience agent (read-only, no network)
   test-publish-integrity.ps1  Regression test for the write/event divergence
   results/                 Generated evidence and audit.jsonl, gitignored
-dashboard/       Live resilience console + Grok advisory layer (ASP.NET Core)
-  Ai/                      GrokClient, RecommendationValidator, ExperimentCatalog
+dashboard/       Live resilience console + AI advisory layer (ASP.NET Core)
+  Ai/                      Groq + Ollama providers, router, validator, catalog
 dashboard.Tests/ xUnit safety tests (no real API calls, no real faults)
 docs/            Plan, status, handover, team tasks, generated map, experiment write-ups
 src/             Upstream Pitstop. Change only to fix something genuinely broken.
@@ -79,7 +79,9 @@ These are the point of the project. Treat them as binding.
    an allowlist before a human is offered it. Never run model-generated shell
    commands. **No score, no number and no ranking may come from a model** — they
    come from published rules in code, so they are reproducible and checkable.
-   See `docs/AI_ANALYSIS_DESIGN.md`.
+   See `docs/AI_ANALYSIS_DESIGN.md` and `docs/AI_SETUP.md`.
+   Providers degrade Groq -> Ollama -> deterministic. A provider error is never
+   permission to act: no recommendation means nothing to approve.
 6. **Secrets come from environment variables.** Never commit a key, never print
    one in logs, docs or screenshots.
 
