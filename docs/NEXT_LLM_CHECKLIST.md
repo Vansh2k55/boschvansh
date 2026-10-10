@@ -100,6 +100,27 @@ Full reasoning in `docs/PR_REVIEW_LOG.md`. Merged: #4, #5, #6, #7.
 
 Do not merge #8 or #3 without the named fixes. Do not modify those branches.
 
+## D3. Experiment catalog state
+
+Roadmap and per-candidate assessment: `docs/EXPERIMENT_ROADMAP.md`.
+
+| Experiment | State |
+| --- | --- |
+| `kill-service`, `kill-rabbitmq`, `network-delay` | **Executable**, cleanup verified |
+| `packet-loss` | **Planned, next** - reuses the proven qdisc lifecycle |
+| `kill-database` | **Planned** - highest value, needs a 30s cap |
+| `pause-customer-api`, `pause-vehicle-api` | **Prepared, not executable** - need a sandbox guard and an unpause watchdog |
+| `cpu-pressure` | Candidate; needs a load generator to be measurable |
+| Memory pressure, network partition, dependency timeout | Not planned - reasons in the roadmap |
+
+## D4. Groq is configured now
+
+The first live call returned **413 Request too large**, which found a real
+defect: the evidence payload grew with every run. Fixed in `9c36885`
+(`EvidenceBudget`). **The running dashboard still has the old code** - it must
+be restarted to pick the fix up, and the live call re-tried to confirm Groq
+answers rather than falling back.
+
 ## E. Prioritised plan for the next session
 
 Reconcile with `docs/AI_IMPLEMENTATION_PLAN.md`. Phases 0–5 are done; **Phase 6
