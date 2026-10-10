@@ -51,7 +51,18 @@ public sealed class GroqClient(HttpClient http, AiOptions options) : IAiProvider
         if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
         try
         {
-            var message = JsonNode.Parse(raw)?["error"]?["message"]?.GetValue<string>();
+            var error = JsonNode.Parse(raw)?["error"];
+            var message = error?["message"]?.GetValue<string>();
+
+            // Groq returns what the model actually produced here. It is model
+            // output, not a secret, and without it a truncated generation is
+            // indistinguishable from a malformed schema.
+            var failed = error?["failed_generation"]?.GetValue<string>();
+            if (!string.IsNullOrWhiteSpace(failed))
+            {
+                var tail = failed.Length > 120 ? "…" + failed[^120..] : failed;
+                message = $"{message} Model output ended with: {tail}";
+            }
             if (string.IsNullOrWhiteSpace(message)) return string.Empty;
 
             var trimmed = message.Trim();
@@ -80,6 +91,8 @@ public sealed class GroqClient(HttpClient http, AiOptions options) : IAiProvider
             ["messages"] = new JsonArray(
                 new JsonObject { ["role"] = "system", ["content"] = systemPrompt },
                 new JsonObject { ["role"] = "user", ["content"] = userPrompt }),
+            // gpt-oss models take max_completion_tokens rather than max_tokens.
+            ["max_completion_tokens"] = options.Groq.MaxCompletionTokens,
             ["response_format"] = new JsonObject
             {
                 ["type"] = "json_schema",

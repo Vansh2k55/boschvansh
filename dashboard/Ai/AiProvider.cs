@@ -26,6 +26,15 @@ public sealed class AiOptions
         /// </summary>
         public string Model { get; init; } = "openai/gpt-oss-20b";
         public int TimeoutSeconds { get; init; } = 60;
+
+        /// <summary>
+        /// Room reserved for the structured answer. Without an explicit value the
+        /// provider default applies, and a long evidence prompt can leave too
+        /// little room for a 15-field object plus its discoveries array - the
+        /// generation is cut mid-JSON and comes back as
+        /// "Failed to validate JSON", which looks like a schema fault and is not.
+        /// </summary>
+        public int MaxCompletionTokens { get; init; } = 4000;
     }
 
     public sealed class OllamaOptions
@@ -51,6 +60,7 @@ public sealed class AiOptions
             {
                 Endpoint = options.Groq.Endpoint,
                 Model = Environment.GetEnvironmentVariable("GROQ_MODEL") ?? options.Groq.Model,
+                MaxCompletionTokens = options.Groq.MaxCompletionTokens,
                 TimeoutSeconds = options.Groq.TimeoutSeconds,
             },
             Ollama = new OllamaOptions
