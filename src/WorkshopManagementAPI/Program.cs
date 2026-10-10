@@ -61,6 +61,16 @@ app.UseSwaggerUI(c =>
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "WorkshopManagement API - v1");
 });
 
+// initialize the event store db
+// The repository creates the event store database and its tables in its
+// constructor, but it is registered as transient - so without this it is only
+// created on the first request and the EventStoreHC health check fails until
+// then. The sibling APIs migrate their database here in the same way.
+using (var scope = app.Services.GetRequiredService<IServiceScopeFactory>().CreateScope())
+{
+    scope.ServiceProvider.GetRequiredService<IEventSourceRepository<WorkshopPlanning>>();
+}
+
 app.UseHealthChecks("/hc");
 
 app.MapControllers();

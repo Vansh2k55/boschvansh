@@ -267,3 +267,5 @@ dotnet-install.sh
 
 # Docker
 .containerdata
+# Nested local clone used for scratch comparison - not part of the repo
+/pitstop/
