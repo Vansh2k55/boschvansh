@@ -138,7 +138,10 @@ $ranked = @()
 foreach ($name in $nodes.Keys) {
     $dependents = @($edges | Where-Object { $_.to -eq $name } | ForEach-Object { $_.from } | Sort-Object -Unique)
     if ($dependents.Count -gt 0) {
-        $ranked += [ordered]@{ service = $name; dependentCount = $dependents.Count; dependents = $dependents }
+        # pscustomobject, not [ordered]: Sort-Object -Property cannot read an
+        # OrderedDictionary, so ranking it silently did nothing and the "most
+        # depended on" table came out in alphabetical order.
+        $ranked += [pscustomobject][ordered]@{ service = $name; dependentCount = $dependents.Count; dependents = $dependents }
     }
 }
 $ranked = @($ranked | Sort-Object -Property dependentCount -Descending)
