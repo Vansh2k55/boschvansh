@@ -8,7 +8,7 @@ docs/RECOVERY_SAFETY_AUDIT.md. No Pitstop fault was injected by the audit.
 Provider audit: wrong-envelope fallback, body deadlines and error-body privacy
 hardened; 132 unit/mocked tests passed. No live provider verification. See
 docs/AI_RELIABILITY_AUDIT.md.
-
+Experiment branch review: reject wholesale alternative architecture and shared-database crash execution. See docs/EXPERIMENT_COMPATIBILITY_AUDIT.md. No executable experiment imported.
 # START HERE
 
 > **Resuming in a new session? Read `docs/NEXT_LLM_CHECKLIST.md` first.** It
