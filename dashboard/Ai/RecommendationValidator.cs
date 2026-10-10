@@ -23,6 +23,9 @@ public sealed record AiRecommendation
     public string? RecoveryExpectation { get; init; }
     public string? RollbackStrategy { get; init; }
     public string? Reasoning { get; init; }
+
+    /// <summary>Research notes. Never validated into anything executable.</summary>
+    public DiscoveredRisk[]? Discoveries { get; init; }
 }
 
 public sealed record ValidationResult(

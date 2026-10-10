@@ -37,6 +37,20 @@ public static class AiPrompts
         - If the evidence shows a service is already unhealthy, say so in the
           risk justification.
 
+        Separately from the recommendation, you may list failure modes this
+        platform CANNOT currently test - slow dependencies, resource exhaustion,
+        partial network partitions, timeouts, anything the two experiments above
+        do not cover. Put those in `discoveries`. They are research notes: they
+        will be shown to the operator as not implemented and not executable, and
+        nothing will run them. This is how gaps in coverage get surfaced.
+
+        Rules for discoveries:
+        - Each one must cite evidence from what you were given. A discovery with
+          no evidence is speculation and will be dropped.
+        - Do NOT name kill-service or kill-rabbitmq in a discovery. Those are
+          already executable; if one of them is the right move, recommend it.
+        - Return an empty list if the evidence does not support any.
+
         You are advisory only. A human reviews your recommendation and decides
         whether it runs. Never claim authority to execute anything.
         """;
@@ -104,11 +118,32 @@ public static class AiPrompts
             ["recoveryExpectation"] = Str("What recovery should look like, and roughly how long."),
             ["rollbackStrategy"] = Str("How the experiment is stopped and the system restored."),
             ["reasoning"] = Str("Why this experiment, over the alternative, given the evidence."),
+            ["discoveries"] = new JsonObject
+            {
+                ["type"] = "array",
+                ["description"] = "Failure modes worth testing that this platform cannot execute. Research notes, not instructions.",
+                ["items"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["properties"] = new JsonObject
+                    {
+                        ["title"] = Str("Short name for the failure mode. Never a registered experiment id."),
+                        ["failureMode"] = Str("What would go wrong, concretely."),
+                        ["rationale"] = Str("Why the evidence suggests this is worth testing."),
+                        ["evidence"] = StrArray("Readable statements quoting the values this rests on."),
+                        ["potentialImpact"] = Str("What it would cost if it happened in practice."),
+                        ["whyUnmeasured"] = Str("Why current experiments do not cover it."),
+                        ["suggestedNextStep"] = Str("What a human would need to build to test it."),
+                    },
+                    ["required"] = new JsonArray("title", "failureMode", "rationale", "evidence", "potentialImpact", "whyUnmeasured", "suggestedNextStep"),
+                    ["additionalProperties"] = false,
+                },
+            },
         },
         ["required"] = new JsonArray(
             "experiment", "target", "durationSeconds", "hypothesis", "expectedImpact",
             "risk", "riskJustification", "expectedSignals", "successCriteria",
-            "failureCriteria", "preconditions", "recoveryExpectation", "rollbackStrategy", "reasoning"),
+            "failureCriteria", "preconditions", "recoveryExpectation", "rollbackStrategy", "reasoning", "discoveries"),
         ["additionalProperties"] = false,
     };
 

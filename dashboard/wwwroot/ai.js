@@ -49,6 +49,7 @@ el('btn-recommend').addEventListener('click', async () => {
     const result = await api('/api/ai/recommend', { method: 'POST' });
     aiRecommendation = result;
     renderRecommendation(result);
+    renderDiscoveries(result);
   } catch (err) {
     box.innerHTML = `<div class="ai-reject"><strong>No AI provider could answer.</strong> ${err.message}
       <p style="margin:6px 0 0;color:var(--text-dim)">Everything else on this page still works — pick an experiment manually below.</p></div>`;
@@ -56,6 +57,40 @@ el('btn-recommend').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+
+// Discoveries are rendered as text with no controls. There is no button to
+// add, because there is nothing to run - the server has no registered
+// experiment for any of them.
+function renderDiscoveries(result) {
+  const box = el('ai-discoveries');
+  const found = (result && result.discoveries) || [];
+  const dropped = (result && result.discoveriesRejected) || [];
+
+  if (!found.length && !dropped.length) { box.innerHTML = ''; return; }
+
+  box.innerHTML = `
+    <h3 style="margin:16px 0 4px;font-size:11.5px;letter-spacing:0.09em;text-transform:uppercase;color:var(--text-dim)">
+      Discovered risks <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-faint)">
+      &mdash; gaps this platform cannot yet test</span>
+    </h3>
+    ${found.map((d) => `
+      <div class="discovery">
+        <div class="head" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:5px">
+          <span class="pill not-executable">${d.status}</span>
+          <span class="title">${d.title}</span>
+        </div>
+        <p>${d.failureMode}</p>
+        <dl>
+          ${d.rationale ? `<dt>Rationale</dt><dd>${d.rationale}</dd>` : ''}
+          ${d.potentialImpact ? `<dt>If it happened</dt><dd>${d.potentialImpact}</dd>` : ''}
+          ${d.whyUnmeasured ? `<dt>Why untested</dt><dd>${d.whyUnmeasured}</dd>` : ''}
+          ${d.suggestedNextStep ? `<dt>To test it</dt><dd>${d.suggestedNextStep}</dd>` : ''}
+        </dl>
+        ${(d.evidence || []).length ? `<div class="evidence" style="margin-top:7px">${d.evidence.join(' &middot; ')}</div>` : ''}
+      </div>`).join('')}
+    ${dropped.length ? `<p style="margin:8px 0 0;font-size:11.5px;color:var(--text-faint)">
+      Dropped by the server: ${dropped.join(' ')}</p>` : ''}`;
+}
 
 function renderRecommendation(result) {
   const box = el('ai-recommendation');
@@ -119,6 +154,7 @@ function renderRecommendation(result) {
 
   el('btn-ai-dismiss').addEventListener('click', () => {
     box.innerHTML = '';
+    el('ai-discoveries').innerHTML = '';
     aiRecommendation = null;
   });
   const approve = el('btn-ai-approve');

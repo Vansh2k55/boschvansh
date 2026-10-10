@@ -213,13 +213,53 @@ holds the lock.
 that had not executed - a stray `Dashboard` process held a file lock. Both were
 run immediately after and did pass, but the claim preceded the evidence.
 
+## Phase 4 — Safe AI experiment discovery ✅
+
+The model can now name a failure mode this platform cannot test, without that
+sentence becoming something the system will do.
+
+A discovery is text. `DiscoveredRisk` has no experiment id, no target and no
+duration, so there is nothing to hand a runner even if something tried. The
+`DISCOVERED — NOT IMPLEMENTED — NOT EXECUTABLE` status is written by the server,
+never copied from the model - if the model could supply it, it could supply a
+different one.
+
+`DiscoveryValidator` drops a discovery that:
+
+- names a registered experiment, in its title or its failure mode. That is
+  either a modelling error or an attempt to launder an idea into something
+  runnable, and neither belongs beside real experiments.
+- cites no evidence, which makes it speculation rather than a finding.
+- has no title or no failure mode.
+
+Surfacing is capped at five so a model cannot bury the real recommendation.
+Discoveries and the recommendation are independent: a rejected experiment
+proposal does not discard a sound observation about coverage.
+
+The UI renders them as text with **no controls** - no button exists to add,
+because there is nothing to run.
+
+**21 tests added (91 total).** The ones that matter prove absence: running a
+discovered title through `/api/experiments/run` with `approved: true` is
+refused, and so are `network-delay`, `resource-exhaustion`,
+`dependency-timeout` and `kill-database` - the exact names a model proposes -
+at both the run endpoint and preflight. Calling the API directly is not a way
+around the UI, because the UI was never the gate.
+
+Verified live against Ollama: three discoveries surfaced, each marked not
+executable and each citing real evidence from the saved reports.
+
+*Model-quality note, not a safety issue:* `qwen3.5:4b` produced weak
+`failureMode` text ("failure", "success") while citing accurate evidence. A
+larger local model or Groq would do better; the safety boundary is unaffected.
+
 ---
 
 ## Remaining
 
 | Phase | State |
 | --- | --- |
-| 4 — Self-analysis and experiment discovery | **Not started.** Recommendations already use real evidence; the `DISCOVERED — NOT IMPLEMENTED — NOT EXECUTABLE` path is designed but not built. |
+| 4 — Self-analysis and experiment discovery | **Complete.** |
 | 5 — Experiment registry and `network-delay` | **Not started.** `ExperimentCatalog` is already the single source of truth; the adapted `tc` sidecar experiment is specified in `docs/AI_EXPERIMENT_DESIGN.md` and not implemented. |
 | 6 — Safety hardening | **Partly done** via the guards above. Watchdog-under-kill remains untested. |
 | 7 — Integration and live verification | **Not started.** Groq has never run live - no key. |
@@ -239,7 +279,8 @@ run immediately after and did pass, but the claim preceded the evidence.
 
 ## Next action
 
-Phase 4: build the `DISCOVERED — NOT IMPLEMENTED — NOT EXECUTABLE` path so the
-model can name an unmeasured risk without that idea having any route to
-execution. Everything it needs exists.
+Phase 5: implement `network-delay` as a registered experiment using the
+tc-sidecar technique in `docs/AI_EXPERIMENT_DESIGN.md`, with the qdisc guard and
+verified removal. Enable it only if cleanup can be proven after normal
+completion, failure, timeout, cancellation and kill-switch activation.
 

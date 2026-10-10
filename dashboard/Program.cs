@@ -177,6 +177,10 @@ app.MapPost("/api/ai/recommend", async (AiProviderRouter router, CancellationTok
     }
 
     var validation = RecommendationValidator.Validate(result.Value);
+
+    // Discoveries travel beside the recommendation but never into it. They are
+    // text: no id, no target, no duration, and no route to /api/experiments/run.
+    var discoveries = DiscoveryValidator.Validate(result.Value?.Discoveries);
     AppendAudit(new
     {
         timestampUtc = DateTime.UtcNow,
@@ -187,6 +191,7 @@ app.MapPost("/api/ai/recommend", async (AiProviderRouter router, CancellationTok
         proposedDuration = result.Value?.DurationSeconds,
         allowed = validation.Allowed,
         rejections = validation.Rejections,
+        discoveries = discoveries.Surfaced.Count,
     });
 
     // Preflight is reported alongside, so the operator sees both "is this
@@ -206,6 +211,8 @@ app.MapPost("/api/ai/recommend", async (AiProviderRouter router, CancellationTok
         allowed = validation.Allowed,
         rejections = validation.Rejections,
         recommendation = validation.Recommendation,
+        discoveries = discoveries.Surfaced,
+        discoveriesRejected = discoveries.Rejected,
         // Always the catalog's target and bounds, never the model's.
         resolved = validation.Spec is null ? null : new
         {
