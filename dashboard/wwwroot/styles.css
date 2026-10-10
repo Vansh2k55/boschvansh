@@ -247,3 +247,39 @@ svg.graph .edge.event { stroke-dasharray: 3 3; }
 .empty { color: var(--text-faint); font-size: 12.5px; font-style: italic; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--text-faint); margin-top: 9px; }
 .legend span { display: flex; align-items: center; gap: 5px; }
+
+/* The AI panels are visually distinct so advisory output is never mistaken for
+   a measured value. Dashed accent edge = a model wrote this. */
+.panel.ai { border-color: oklch(45% 0.09 300); }
+.panel.ai > h2 { color: oklch(78% 0.11 300); }
+
+.ai-card {
+  margin-top: 11px; padding: 12px;
+  background: var(--bg-sunken);
+  border: 1px dashed oklch(48% 0.09 300);
+  border-radius: var(--r-sm);
+}
+.ai-card .headline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 9px; }
+.ai-card .exp { font-family: var(--mono); font-weight: 650; font-size: 13.5px; }
+.ai-card dl { margin: 0 0 9px; display: grid; grid-template-columns: 112px 1fr; gap: 4px 10px; font-size: 12px; }
+.ai-card dt { color: var(--text-faint); }
+.ai-card dd { margin: 0; color: var(--text-dim); }
+.ai-card ul { margin: 3px 0 0; padding-left: 16px; color: var(--text-dim); font-size: 12px; }
+
+.pill.ai { color: oklch(78% 0.11 300); border-color: oklch(55% 0.09 300); border-style: dashed; }
+.pill.rejected { color: var(--fail); border-color: var(--fail); }
+.pill.validated { color: var(--ok); border-color: var(--ok); }
+
+.ai-reject {
+  margin-top: 10px; padding: 10px;
+  border: 1px solid var(--fail); border-radius: var(--r-sm);
+  background: oklch(22% 0.05 22); font-size: 12.5px;
+}
+.ai-reject strong { color: var(--fail); }
+.ai-reject ul { margin: 5px 0 0; padding-left: 17px; color: var(--text-dim); }
+
+.ai-unsupported {
+  margin-top: 9px; padding: 8px 10px;
+  border-left: 2px solid var(--warn); background: var(--bg-sunken);
+  font-size: 12px; color: var(--text-dim);
+}

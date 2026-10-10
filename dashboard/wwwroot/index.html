@@ -60,6 +60,17 @@
       <div class="body" id="assessment"><p class="empty">No assessment yet.</p></div>
     </section>
 
+    <section class="panel ai">
+      <h2>Grok explanation <span class="note">narrative only &mdash; scores above are unaffected</span></h2>
+      <div class="body">
+        <div class="controls">
+          <button id="btn-explain">Explain latest run</button>
+          <span style="font-size:12px;color:var(--text-faint)" id="explain-target"></span>
+        </div>
+        <div id="ai-explanation"></div>
+      </div>
+    </section>
+
     <section class="panel">
       <h2>Experiment history</h2>
       <div class="body">
@@ -73,6 +84,21 @@
   </div>
 
   <div class="stack">
+
+    <section class="panel ai">
+      <h2>AI experiment planner <span class="note" id="ai-status">checking&hellip;</span></h2>
+      <div class="body">
+        <p style="margin:0 0 11px;color:var(--text-dim);font-size:12.5px">
+          Grok reads the live evidence and proposes one experiment. The server then
+          checks it against the fixed allowlist &mdash; the model cannot invent an
+          experiment, choose a target, or widen a duration. It recommends; you approve.
+        </p>
+        <div class="controls">
+          <button id="btn-recommend">AI Recommend Experiment</button>
+        </div>
+        <div id="ai-recommendation"></div>
+      </div>
+    </section>
 
     <section class="panel">
       <h2>Experiment controls <span class="note">operator approval required</span></h2>
@@ -117,5 +143,6 @@
 </main>
 
 <script src="app.js"></script>
+<script src="ai.js"></script>
 </body>
 </html>

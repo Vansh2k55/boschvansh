@@ -534,3 +534,6 @@ sealed class RunState
         }
     }
 }
+
+// Exposed so integration tests can host the app with a stubbed Grok client.
+public partial class Program { }
