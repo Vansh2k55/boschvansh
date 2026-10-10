@@ -89,6 +89,9 @@ app.MapGet("/api/state", async (CancellationToken ct) => Results.Json(new
         maxDelayMs = e.Value.MaxDelayMs,
         defaultDelayMs = e.Value.DefaultDelayMs,
     }),
+    // Display only. These are not in ExperimentCatalog, so the run endpoint
+    // refuses them like any other unregistered name.
+    preparedExperiments = PreparedExperiments.List(chaosScripts),
     run = runState.Snapshot(),
     killSwitchEngaged = File.Exists(stopFile),
     runs = ListRuns(),

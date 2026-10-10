@@ -100,12 +100,26 @@ internal class TestApp(StubAiHandler handler) : WebApplicationFactory<Program>
 
     public FakeExperimentRunner Runner { get; } = new();
 
+    private string ModeSettingsDirectory { get; } =
+        Directory.CreateTempSubdirectory("pitstop-tests-").FullName;
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        try { Directory.Delete(ModeSettingsDirectory, recursive: true); }
+        catch (IOException) { /* a leftover temp directory is not worth failing a test over */ }
+    }
+
     protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder) =>
         builder.ConfigureServices(services =>
         {
             services.AddHttpClient<GroqClient>().ConfigurePrimaryHttpMessageHandler(() => Handler);
             services.AddHttpClient<OllamaClient>().ConfigurePrimaryHttpMessageHandler(() => Handler);
             services.AddSingleton<IExperimentRunner>(Runner);
+            // The mode store persists to disk. Without an isolated path a test
+            // that selects a mode changes it for every later test, and for the
+            // developer's dashboard.
+            services.AddSingleton(new AiModeStore(Path.Combine(ModeSettingsDirectory, "ai-settings.json")));
         });
 }
 
