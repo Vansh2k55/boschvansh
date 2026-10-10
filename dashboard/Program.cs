@@ -173,9 +173,11 @@ app.MapPost("/api/ai/recommend", async (AiProviderRouter router, CancellationTok
                 ["healthy"] = m.Healthy,
                 ["latencyMs"] = m.LatencyMs,
             }).ToArray()),
-        ["experimentsRunSoFar"] = new JsonArray(ListRuns()
-            .Select(r => (JsonNode)JsonSerializer.SerializeToNode(r, jsonOptions)!).ToArray()),
-        ["deterministicAssessment"] = assessment?.DeepClone(),
+        // Bounded. The first live Groq call failed with 413 because this grew
+        // with every experiment ever run; the full detail stays on disk.
+        ["recentExperiments"] = EvidenceBudget.RecentRuns(ListRuns()
+            .Select(r => (JsonNode?)JsonSerializer.SerializeToNode(r, jsonOptions))),
+        ["deterministicAssessment"] = EvidenceBudget.SummariseAssessment(assessment),
         ["mostDependedOn"] = graph?["mostDependedOn"]?.DeepClone(),
     };
 

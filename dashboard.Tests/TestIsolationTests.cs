@@ -140,10 +140,16 @@ public class TestIsolationTests : IDisposable
         Assert.Contains("runner.RunAsync", program);
     }
 
-    private static string FindRepoRoot()
+    /// <summary>Locates the repository from this file's compile-time path.</summary>
+    /// <remarks>
+    /// Walking up from the build output breaks whenever the output lives
+    /// outside the tree, which is exactly when someone is building around a
+    /// locked file. CallerFilePath is fixed at compile time and does not care.
+    /// </remarks>
+    private static string FindRepoRoot([System.Runtime.CompilerServices.CallerFilePath] string sourceFile = "")
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        var dir = new DirectoryInfo(Path.GetDirectoryName(sourceFile)!);
         while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "chaos-scripts"))) dir = dir.Parent;
-        return dir?.FullName ?? AppContext.BaseDirectory;
+        return dir?.FullName ?? throw new DirectoryNotFoundException($"No repository root above {sourceFile}");
     }
 }
