@@ -276,3 +276,5 @@ dotnet-install.sh
 # Dashboard build output
 /dashboard/bin/
 /dashboard/obj/
+/dashboard.Tests/bin/
+/dashboard.Tests/obj/

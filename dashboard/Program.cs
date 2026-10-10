@@ -15,7 +15,10 @@ using System.Text.Json.Nodes;
 //     works whether or not this process is alive, which is why the dashboard
 //     writes the file rather than signalling the script directly.
 
+using Pitstop.ResilienceDashboard;
+
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddHttpClient<GrokClient>(c => c.Timeout = TimeSpan.FromSeconds(90));
 var app = builder.Build();
 
 var repoRoot = FindRepoRoot(app.Environment.ContentRootPath)
@@ -26,28 +29,9 @@ var stopFile = Path.Combine(chaosScripts, "STOP");
 var resultsDir = Path.Combine(chaosScripts, "results");
 var auditLog = Path.Combine(resultsDir, "audit.jsonl");
 
-// The complete set of things this dashboard is allowed to do to the system.
-var allowlist = new Dictionary<string, ExperimentSpec>(StringComparer.OrdinalIgnoreCase)
-{
-    ["kill-service"] = new(
-        Script: "kill-service.ps1",
-        DurationParameter: "-DurationSeconds",
-        MinDuration: 5, MaxDuration: 60, DefaultDuration: 25,
-        RequiresExecuteFlag: false,
-        Target: "workshopmanagementapi",
-        ExpectedBlastRadius: "The Workshop module page only. Customer and Vehicle are served by separate APIs and are expected to stay healthy.",
-        Risk: "medium",
-        RecoveryPlan: "The container is restarted when the duration cap, a safety threshold or the STOP file ends the run. An independent watchdog job restarts it even if the script dies."),
-    ["kill-rabbitmq"] = new(
-        Script: "kill-rabbitmq.ps1",
-        DurationParameter: "-DowntimeSeconds",
-        MinDuration: 5, MaxDuration: 120, DefaultDuration: 25,
-        RequiresExecuteFlag: true,
-        Target: "rabbitmq",
-        ExpectedBlastRadius: "No visible impact on any module page - all three read from their own database. The damage is on the write path: publishes fail while the broker is down.",
-        Risk: "high",
-        RecoveryPlan: "The broker is restarted on duration cap, threshold or STOP file, with a watchdog as backup. Recovery requires the broker to accept connections AND a customer write to succeed."),
-};
+// Experiments live in ExperimentCatalog so the runner and the AI-recommendation
+// validator can never drift apart on what is permitted.
+var allowlist = ExperimentCatalog.All;
 
 var runState = new RunState();
 var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -93,24 +77,157 @@ app.MapGet("/api/runs/{runId}", (string runId) =>
 // operator is offered an approval button.
 app.MapGet("/api/preflight/{name}", async (string name, CancellationToken ct) =>
 {
-    if (!allowlist.TryGetValue(name, out var spec))
+    if (!ExperimentCatalog.TryGet(name, out var spec))
         return Results.Json(new { ok = false, blockers = new[] { $"'{name}' is not an allowlisted experiment." } }, jsonOptions);
 
-    var blockers = new List<string>();
-    if (runState.IsRunning) blockers.Add($"'{runState.Experiment}' is already running. Overlapping experiments are not permitted.");
-    if (File.Exists(stopFile)) blockers.Add("The STOP file is present. Remove it before starting a new experiment.");
-    if (!File.Exists(composeFile)) blockers.Add("docker-compose.yml not found.");
-
-    var services = await ProbeServicesAsync(ct);
-    var target = services.FirstOrDefault(s => string.Equals(s.Name, spec.Target, StringComparison.OrdinalIgnoreCase));
-    if (target is null) blockers.Add($"Target container '{spec.Target}' was not found.");
-    else if (!target.Running) blockers.Add($"Target container '{spec.Target}' is not running.");
-
-    var modules = await ProbeModulesAsync(ct);
-    foreach (var unhealthy in modules.Where(m => !m.Healthy))
-        blockers.Add($"{unhealthy.Name} is not healthy, so there is no clean baseline to compare against.");
-
+    var blockers = await CollectBlockersAsync(spec, ct);
     return Results.Json(new { ok = blockers.Count == 0, blockers, spec.Risk, spec.ExpectedBlastRadius, spec.RecoveryPlan }, jsonOptions);
+});
+
+// ---- AI advisory layer -----------------------------------------------------
+// Grok proposes; this server decides. Nothing here can start an experiment:
+// a recommendation that passes validation is still only something to show a
+// human, who must approve it through /api/experiments/run as before.
+
+app.MapGet("/api/ai/status", () => Results.Json(new
+{
+    // Whether a key exists, never the key itself.
+    configured = GrokClient.IsConfigured,
+    model = Environment.GetEnvironmentVariable("XAI_MODEL") ?? GrokClient.DefaultModel,
+    note = "Deterministic scoring and the kill switch do not depend on this.",
+}, jsonOptions));
+
+app.MapPost("/api/ai/recommend", async (GrokClient grok, CancellationToken ct) =>
+{
+    var services = await ProbeServicesAsync(ct);
+    var modules = await ProbeModulesAsync(ct);
+    var assessment = ReadJsonFile(Path.Combine(resultsDir, "analysis", "analysis.json"));
+    var graph = ReadJsonFile(Path.Combine(resultsDir, "dependency-map", "graph.json"));
+
+    // Only the extracted facts go to the model.
+    var evidence = new JsonObject
+    {
+        ["liveServices"] = new JsonArray(services.Select(s =>
+            (JsonNode)new JsonObject
+            {
+                ["name"] = s.Name,
+                ["running"] = s.Running,
+                ["health"] = s.Health,
+            }).ToArray()),
+        ["liveModuleProbes"] = new JsonArray(modules.Select(m =>
+            (JsonNode)new JsonObject
+            {
+                ["module"] = m.Name,
+                ["statusCode"] = m.StatusCode,
+                ["healthy"] = m.Healthy,
+                ["latencyMs"] = m.LatencyMs,
+            }).ToArray()),
+        ["experimentsRunSoFar"] = new JsonArray(ListRuns()
+            .Select(r => (JsonNode)JsonSerializer.SerializeToNode(r, jsonOptions)!).ToArray()),
+        ["deterministicAssessment"] = assessment?.DeepClone(),
+        ["mostDependedOn"] = graph?["mostDependedOn"]?.DeepClone(),
+    };
+
+    var result = await grok.CompleteAsync<AiRecommendation>(
+        AiPrompts.RecommendSystemPrompt,
+        "Recommend the single most informative next chaos experiment for this system.\n\n" +
+        "Evidence:\n" + evidence.ToJsonString(),
+        "chaos_experiment_recommendation",
+        AiPrompts.RecommendationSchema(),
+        ct);
+
+    if (!result.Ok)
+    {
+        AppendAudit(new { timestampUtc = DateTime.UtcNow, action = "ai.recommend.failed", error = result.Error });
+        return Results.Json(new { ok = false, error = result.Error }, jsonOptions, statusCode: 503);
+    }
+
+    var validation = RecommendationValidator.Validate(result.Value);
+    AppendAudit(new
+    {
+        timestampUtc = DateTime.UtcNow,
+        action = "ai.recommend",
+        experiment = result.Value?.Experiment,
+        proposedTarget = result.Value?.Target,
+        proposedDuration = result.Value?.DurationSeconds,
+        allowed = validation.Allowed,
+        rejections = validation.Rejections,
+    });
+
+    // Preflight is reported alongside, so the operator sees both "is this
+    // permitted" and "is the system in a state where it is safe right now".
+    object? preflight = null;
+    if (validation.Allowed && validation.Spec is { } spec)
+    {
+        var blockers = await CollectBlockersAsync(spec, ct);
+        preflight = new { ok = blockers.Count == 0, blockers };
+    }
+
+    return Results.Json(new
+    {
+        ok = true,
+        allowed = validation.Allowed,
+        rejections = validation.Rejections,
+        recommendation = validation.Recommendation,
+        // Always the catalog's target and bounds, never the model's.
+        resolved = validation.Spec is null ? null : new
+        {
+            experiment = validation.Spec.Name,
+            target = validation.Spec.Target,
+            minDuration = validation.Spec.MinDuration,
+            maxDuration = validation.Spec.MaxDuration,
+            catalogRisk = validation.Spec.Risk,
+            expectedBlastRadius = validation.Spec.ExpectedBlastRadius,
+            recoveryPlan = validation.Spec.RecoveryPlan,
+        },
+        preflight,
+    }, jsonOptions);
+});
+
+app.MapPost("/api/ai/explain/{runId}", async (string runId, GrokClient grok, CancellationToken ct) =>
+{
+    if (!runId.All(char.IsLetterOrDigit)) return Results.BadRequest(new { error = "Invalid run id." });
+    var report = ReadJsonFile(Path.Combine(resultsDir, runId, "report.json"));
+    if (report is null) return Results.NotFound(new { error = "No evidence found for that run." });
+
+    var assessment = ReadJsonFile(Path.Combine(resultsDir, "analysis", "analysis.json"));
+    var runAnalysis = assessment?["Analyses"]?.AsArray()
+        .FirstOrDefault(a => a?["RunId"]?.GetValue<string>() == runId);
+
+    // Samples are trimmed: the model needs the shape of the run, not 84 rows.
+    var samples = report["Samples"]?.AsArray();
+    var trimmed = new JsonArray((samples ?? []).Take(40)
+        .Select(x => x!.DeepClone()).ToArray());
+
+    var evidence = new JsonObject
+    {
+        ["runId"] = runId,
+        ["experiment"] = report["Experiment"]?.DeepClone() ?? "kill-service",
+        ["targetService"] = report["TargetService"]?.DeepClone(),
+        ["rollbackReason"] = report["RollbackReason"]?.DeepClone(),
+        ["recovered"] = report["Recovered"]?.DeepClone(),
+        ["recoverySeconds"] = report["RecoverySeconds"]?.DeepClone(),
+        ["divergenceDetected"] = report["DivergenceDetected"]?.DeepClone(),
+        ["outageWriteRowCommitted"] = report["OutageWriteRowCommitted"]?.DeepClone(),
+        ["writeDuringOutage"] = report["WriteDuringOutage"]?.DeepClone(),
+        ["deterministicAnalysis"] = runAnalysis?.DeepClone(),
+        ["sampleExcerpt"] = trimmed,
+    };
+
+    var result = await grok.CompleteAsync<AiExplanation>(
+        AiPrompts.ExplainSystemPrompt,
+        "Explain what this chaos experiment revealed.\n\nEvidence:\n" + evidence.ToJsonString(),
+        "chaos_experiment_explanation",
+        AiPrompts.ExplanationSchema(),
+        ct);
+
+    if (!result.Ok)
+    {
+        return Results.Json(new { ok = false, error = result.Error }, jsonOptions, statusCode: 503);
+    }
+
+    AppendAudit(new { timestampUtc = DateTime.UtcNow, action = "ai.explain", runId });
+    return Results.Json(new { ok = true, explanation = result.Value }, jsonOptions);
 });
 
 // ---- the only two state-changing endpoints --------------------------------
@@ -167,6 +284,27 @@ app.MapPost("/api/experiments/clear-stop", () =>
 app.Run();
 
 // ---- helpers ---------------------------------------------------------------
+
+// Preflight is a real gate, not a label: it is what both the manual and the
+// AI-assisted paths check before an operator is offered an approval button.
+async Task<List<string>> CollectBlockersAsync(ExperimentSpec spec, CancellationToken ct)
+{
+    var blockers = new List<string>();
+    if (runState.IsRunning) blockers.Add($"'{runState.Experiment}' is already running. Overlapping experiments are not permitted.");
+    if (File.Exists(stopFile)) blockers.Add("The STOP file is present. Remove it before starting a new experiment.");
+    if (!File.Exists(composeFile)) blockers.Add("docker-compose.yml not found.");
+
+    var services = await ProbeServicesAsync(ct);
+    var target = services.FirstOrDefault(s => string.Equals(s.Name, spec.Target, StringComparison.OrdinalIgnoreCase));
+    if (target is null) blockers.Add($"Target container '{spec.Target}' was not found.");
+    else if (!target.Running) blockers.Add($"Target container '{spec.Target}' is not running.");
+
+    var modules = await ProbeModulesAsync(ct);
+    foreach (var unhealthy in modules.Where(m => !m.Healthy))
+        blockers.Add($"{unhealthy.Name} is not healthy, so there is no clean baseline to compare against.");
+
+    return blockers;
+}
 
 string? FindRepoRoot(string start)
 {
@@ -336,10 +474,6 @@ void AppendAudit(object entry)
 }
 
 // ---- types -----------------------------------------------------------------
-
-record ExperimentSpec(
-    string Script, string DurationParameter, int MinDuration, int MaxDuration, int DefaultDuration,
-    bool RequiresExecuteFlag, string Target, string ExpectedBlastRadius, string Risk, string RecoveryPlan);
 
 record ServiceStatus(string Name, bool Running, string State, string Health);
 record ModuleProbe(string Name, int? StatusCode, bool Healthy, double LatencyMs, bool OfflinePage, string? Error);
