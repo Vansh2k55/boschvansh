@@ -218,8 +218,18 @@ finally {
         catch { $failure = "Removal failed: $($_.Exception.Message)" }
     }
     if ($watchdog) {
-        # Removal already happened; the watchdog is now redundant.
-        & docker rm -f $watchdog 2>&1 | Out-Null
+        if ($removalVerified) {
+            # Shaping is confirmed gone, so the watchdog has nothing left to do.
+            & docker rm -f $watchdog 2>&1 | Out-Null
+        }
+        else {
+            # Removal failed or could not be confirmed. The watchdog is the only
+            # remaining thing that will clear the qdisc, so it is deliberately
+            # left running - killing it here would destroy the safety net at the
+            # exact moment it is needed.
+            Write-Warning "Shaping removal was not confirmed. Leaving the watchdog container running to clear it."
+            Write-Host "  Watchdog: $watchdog (fires within $($DurationSeconds + 15)s of injection)"
+        }
     }
     if ($lock) { $lock.Dispose(); $lock = $null }
 }

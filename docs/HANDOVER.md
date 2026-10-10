@@ -1,5 +1,8 @@
 # START HERE
 
+> **Resuming in a new session? Read `docs/NEXT_LLM_CHECKLIST.md` first.** It
+> carries the verified state, the open defects and a continuation prompt.
+
 Recovery document for whichever coding agent picks this up next (Claude Code,
 Antigravity, Codex). Everything below was verified by running it.
 
@@ -16,7 +19,7 @@ Last updated: 2026-10-10, after the dashboard landed.
 | Working tree | Clean apart from gitignored `chaos-scripts/results/` and build output |
 | Checkpoint tags | `baseline-phase0` (verified baseline, `a6bc383`) and `pre-groq-migration` |
 | Branch fork | **Decided:** adapt techniques from PR #2, do not merge it. Their branches are untouched. A new one, `Jigisha-Pradhan-patch-1`, has appeared and is also untouched. |
-| Platform work | Phases 0-5 complete (106 tests). **Next: Phase 6.** |
+| Platform work | Phases 0-5 complete (114 tests). **Next: close the watchdog fix, then Phase 6.** |
 | PR #1 | **Merged** as `12a5245`. No open PRs. |
 | `feature/kill-rabbitmq` | **Deleted** — its one unique behaviour was ported first (`d4685e5`) |
 | `task2-kill-service` | PR #1's merged branch, still present. Safe to delete; nobody asked. |
