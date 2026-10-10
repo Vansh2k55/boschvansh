@@ -100,6 +100,67 @@ implementations as-is.
 
 ---
 
+## Phase 1 — Inspection and integration decision ✅
+
+Their branches were **read only**. Nothing was merged, rebased, modified or
+deleted, and the submission package was not touched.
+
+### What was inspected
+
+`agent/AgentTools.psm1`, `agent/run-agent.ps1`, `agent/experiments.json`,
+`agent/dependencies.json`, their `agent/tests/`, their evolved
+`chaos-scripts/kill-service.ps1`, `chaos-scripts/network-delay.ps1`, and the
+file list of `origin/day2-submission`.
+
+### Decision: adopt techniques, not the framework
+
+Their platform is a PowerShell agent plus a Node dashboard. Ours is a C#
+dashboard with a provider abstraction and 42 xUnit tests. Importing their
+framework would mean two dashboards and two agents; porting our work onto
+theirs would discard the integrity fix and the test suite. Neither is a good
+trade, so specific techniques are adapted into our architecture instead.
+
+**Adopt — safety, and genuinely better than what we have**
+
+| Technique | Why |
+| --- | --- |
+| Compose-ownership verification | They inspect container labels (`com.docker.compose.project`, `.service`, `.project.config_files`) and refuse a container not owned by this checkout's compose file. Stronger than our service-name lookup, and cheap to add. |
+| `experiment.lock` file lock | An OS-level exclusive lock prevents two *script invocations* overlapping. Our dashboard lock is in-process only, so two terminals could still collide. |
+| Kill-switch re-check after baseline | They re-test the STOP file immediately before injecting. Closes a real window: engaging the switch during a 3-round baseline currently still injects. |
+
+**Adopt — capability**
+
+| Technique | Why |
+| --- | --- |
+| `tc` via a sidecar sharing the network namespace | `docker run --rm --network container:<id> --cap-add NET_ADMIN ... tc`. The app image needs no `tc` and the app container never holds `NET_ADMIN`. This is the right way to do it. |
+| Pre-injection qdisc guard and verified removal | Refuses to clobber an existing traffic rule, and checks the `netem` qdisc is actually gone on restore rather than assuming it. |
+| `--pull=never` on the sidecar | A missing image fails loudly instead of silently downloading one mid-experiment. |
+
+**Reject**
+
+| Component | Why |
+| --- | --- |
+| Node `dashboard/` | Collides directly with the C# `dashboard/`. Two dashboards is not one coherent platform. |
+| PowerShell `agent/` framework | Duplicates the provider abstraction, router, validator and registry we already have under test. |
+| Their `kill-service.ps1` wholesale | It is a fork of the same file. Taking it would drop our IPv4 probe fix and the write/event divergence instrumentation. The *logic* is adapted instead. |
+| `kill-database` (`sqlserver`) | Deferred, not rejected. Widest blast radius in the map; it waits until the registry extension path is proven. |
+
+Their plan validator rejects unexpected fields outright ("commands and target
+overrides are forbidden"). Ours achieves the same structurally by
+deserializing into a fixed record, so unknown fields are dropped before
+validation. No change needed, but their explicitness is worth noting.
+
+Attribution for adapted techniques is recorded in the code comments and commit
+messages.
+
+### Sequencing note
+
+The adopted safety items belong to Phase 6 and the network-delay experiment to
+Phase 5. The three safety adaptations are small, low-risk and protect every
+experiment, so they are pulled forward ahead of Phase 2 rather than left until
+late. The reason is recorded here as required.
+
+---
 ## Next action
 
 Settle the reconciliation question, then begin Phase 1.
