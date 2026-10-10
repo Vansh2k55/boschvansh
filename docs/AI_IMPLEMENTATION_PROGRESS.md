@@ -308,6 +308,47 @@ rejected request leaves an experiment running, so the suite cannot begin
 injecting real faults if a future change makes one of those parameter sets
 valid.
 
+## Phase 6 (partial) - PR integration and watchdog correctness
+
+**The headline fix.** PR #7's disposable audit proved the `Start-Job`
+watchdogs in `kill-service` and `kill-rabbitmq` never ran once their parent
+was killed, and did not run on a plain session exit either. A job is a thread
+in the orchestrator's process, so it dies with the thing it exists to outlive.
+The comments calling them independent were wrong.
+
+Both now use `Start-RestartWatchdog` in `ChaosSafety.psm1`: a detached
+container owned by Docker, the pattern already proven for network-delay.
+`Stop-RestartWatchdog` removes it only when the restart command succeeded.
+
+| Scenario | Before | After |
+| --- | --- | --- |
+| kill-service, forced parent kill | false | **true** |
+| kill-service, session exit | false | **true** |
+| kill-rabbitmq, forced parent kill | false | **true** |
+| kill-rabbitmq, session exit | false | **true** |
+
+Both runs left 0 resources behind with the 13 Pitstop containers untouched.
+
+Two harness corrections were needed, and both changed the result: it extracted
+the `Start-Job` body by regex, which no longer exists, and it waited a fixed
+8 seconds when the detached watchdog fires at `$duration + 15s`. The first
+run after the fix reported two false negatives purely from that window.
+
+`kill-service` was also re-run against the live stack: Workshop timed out at
+~5s while Customer and Vehicle held, recovery confirmed by probe, watchdog
+removed on success.
+
+**Trade-off recorded:** the restart watchdog mounts the Docker socket, so for
+its bounded lifetime it can drive the Docker API. That is the authority the
+script already holds, granted to a throwaway container for seconds. The
+alternative was no independent recovery, which the audit rated High.
+
+**PRs:** #4, #5, #6, #7 merged; #3 and #8 returned with named defects; #2
+unchanged. See `docs/PR_REVIEW_LOG.md`.
+
+**Tests: 137 passing** (114 + 18 from PR #5 + 5 for the upstream-message
+adaptation). Build succeeded.
+
 ---
 
 ## Remaining

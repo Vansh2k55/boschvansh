@@ -30,7 +30,7 @@ Last updated: 2026-10-10, after the dashboard landed.
 | Working tree | Clean apart from gitignored `chaos-scripts/results/` and build output |
 | Checkpoint tags | `baseline-phase0` (verified baseline, `a6bc383`) and `pre-groq-migration` |
 | Branch fork | **Decided:** adapt techniques from PR #2, do not merge it. Their branches are untouched. A new one, `Jigisha-Pradhan-patch-1`, has appeared and is also untouched. |
-| Platform work | Phases 0-5 complete (114 tests). **Next: close the watchdog fix, then Phase 6.** |
+| Platform work | Phases 0-5 complete; Phase 6 partly done (137 tests). Watchdog defects fixed and verified. |
 | PR #1 | **Merged** as `12a5245`. No open PRs. |
 | `feature/kill-rabbitmq` | **Deleted** — its one unique behaviour was ported first (`d4685e5`) |
 | `task2-kill-service` | PR #1's merged branch, still present. Safe to delete; nobody asked. |
@@ -187,3 +187,10 @@ which is the one part of the integrity problem still open.
 - `src/*/appsettings.Production.json` carries the upstream sample's hardcoded SQL
   and RabbitMQ passwords. Sandbox-only, inherited from EdwinVW/pitstop. Do not
   imitate and never put a real secret there.
+
+## Open pull requests
+
+#4, #5, #6 and #7 are merged. **#8 and #3 have named defects and must not be
+merged as-is** - see `docs/PR_REVIEW_LOG.md`. #8 would silently send an
+Ollama-only operator's requests to Groq. Teammate branches are untouched.
+

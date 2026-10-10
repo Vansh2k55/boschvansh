@@ -76,10 +76,10 @@ MailDev 4000 · Seq 5341. **Use `127.0.0.1`, not `localhost`, for probes** — a
 
 | Item | Status | Evidence needed |
 | --- | --- | --- |
-| **Watchdog retained when cleanup fails** | **FIXED IN CODE, NOT VERIFIED BY EXECUTION.** `network-delay.ps1` used to `docker rm -f` the watchdog unconditionally, destroying the safety net exactly when removal failed. Now it is only removed when `$removalVerified` is true. Syntax checked; the behavioural test was blocked by a tool path rule and never ran. | Run both branches on a **disposable** container: force removal to fail, confirm the watchdog survives and clears the qdisc; then a success path, confirm the watchdog is removed. Do not test this on the app stack. |
+| **Watchdog retained when cleanup fails** | **VERIFIED.** PR #7's disposable harness forced `Remove-Shaping` to throw: the watchdog was retained and later cleared the qdisc. Previously: `network-delay.ps1` used to `docker rm -f` the watchdog unconditionally, destroying the safety net exactly when removal failed. Now it is only removed when `$removalVerified` is true. Syntax checked; the behavioural test was blocked by a tool path rule and never ran. | Run both branches on a **disposable** container: force removal to fail, confirm the watchdog survives and clears the qdisc; then a success path, confirm the watchdog is removed. Do not test this on the app stack. |
 | **Groq live** | **UNVERIFIED.** No key has ever been configured. All 114 tests use a stubbed transport. | One real request succeeding with `GROQ_API_KEY` set. Never commit the key. |
 | **RabbitMQ event loss** | **REAL AND OPEN.** During a genuine broker outage a customer row commits while its event is never published. No transactional outbox exists. The spurious 30% on a *healthy* system was fixed in `649461b`. | An outbox, implemented and tested, as its own scoped change. Until then do not describe the system as resilient. |
-| **Watchdog for `kill-service` / `kill-rabbitmq` after hard kill** | **UNPROVEN.** Only `network-delay`'s detached watchdog was tested this way. Those two use an in-process `Start-Job`, which dies with PowerShell. | Hard-kill the orchestrator mid-fault and observe whether the container is restored. Expect it to fail. |
+| **Watchdog for `kill-service` / `kill-rabbitmq` after hard kill** | **WAS BROKEN, NOW FIXED AND VERIFIED.** PR #7 proved all four scenarios failed. Both now use `Start-RestartWatchdog` (detached container); the same harness reports all four true. See `b037041`. | Closed. |
 | **`kill-rabbitmq` threshold rollback** | **UNVERIFIED.** Module pages stay healthy during a broker outage, so nothing naturally trips it. | Run with `-MaxUnaffectedLatencyMs 1`, the trick that worked for `kill-service`. |
 | Model discovery quality | Known | `qwen3.5:4b` writes weak `failureMode` text while citing accurate evidence. Safety is unaffected. A larger model or Groq improves it. |
 | `pitstop-netem:1.0` | Platform note | Local build required; Linux containers; needs `NET_ADMIN` and a local Windows named-pipe Docker context. `--pull=never` means a missing image fails loudly. |
@@ -87,6 +87,18 @@ MailDev 4000 · Seq 5341. **Use `127.0.0.1`, not `localhost`, for probes** — a
 **Never equate a running container with recovery or with event integrity.**
 `network-delay` never stops its container, so container status proves nothing
 there — recovery is judged on measured latency.
+
+## D2. Pull requests still open
+
+Full reasoning in `docs/PR_REVIEW_LOG.md`. Merged: #4, #5, #6, #7.
+
+| PR | State | Why |
+| --- | --- | --- |
+| #8 combined scripts + dashboard | **Changes requested** | Forces `AiMode.Groq` whenever `Ollama.Enabled` is false, and ships it false. An operator selecting Ollama-only would have requests sent to Groq - the inverse of their choice, and a break of a tested guarantee. Also keeps two evidence resolvers. `PreparedExperiments` in it is good and worth taking once fixed. |
+| #3 API pause experiments | **Changes requested** | Superseded in scope by #8 (same scripts, cannot merge both). Missing `Assert-SandboxContainer`, and no independent recovery - a paused container stays paused if the orchestrator dies, the same defect just fixed for the crash experiments. Its `analyze.ps1` change is sound and can be taken alone. |
+| #2 AI agent | **Not merged** | Unchanged from the Phase 1 decision; techniques already adapted. |
+
+Do not merge #8 or #3 without the named fixes. Do not modify those branches.
 
 ## E. Prioritised plan for the next session
 
