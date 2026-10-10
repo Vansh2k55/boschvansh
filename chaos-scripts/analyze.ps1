@@ -121,7 +121,7 @@ $analyses = foreach ($path in $ReportPath) {
     # prose on top of these - it does not replace them.
     $findings = [System.Collections.Generic.List[object]]::new()
     if ($report.DivergenceDetected) {
-        $findings.Add([ordered]@{
+        $findings.Add([pscustomobject][ordered]@{
             Severity = 'High'
             Title = 'Database and event stream diverge during a broker outage'
             Hypothesis = 'The database write and the event publish are not atomic, so there is no transactional outbox.'
@@ -132,7 +132,7 @@ $analyses = foreach ($path in $ReportPath) {
         })
     }
     if (-not $report.Recovered) {
-        $findings.Add([ordered]@{
+        $findings.Add([pscustomobject][ordered]@{
             Severity = 'High'; Title = 'Service did not recover within the timeout'
             Hypothesis = 'Restore completed but the service did not return to a healthy state in the allotted window.'
             Evidence = @("Recovered=$($report.Recovered)", "Restored=$($report.Restored)", "Error=$($report.Error)")
@@ -141,7 +141,7 @@ $analyses = foreach ($path in $ReportPath) {
     }
     $gracefulDimension = $dimensions | Where-Object { $_.Name -eq 'Graceful degradation' }
     if ($gracefulDimension.Measured -and $gracefulDimension.Earned -lt ($gracefulDimension.Weight * 0.5)) {
-        $findings.Add([ordered]@{
+        $findings.Add([pscustomobject][ordered]@{
             Severity = 'Medium'; Title = 'Injected service hard-times-out instead of failing fast'
             Hypothesis = 'The caller has no timeout or circuit breaker on this dependency, so a dead service costs a full request timeout per call.'
             Evidence = @($gracefulDimension.Detail)
@@ -156,7 +156,7 @@ $analyses = foreach ($path in $ReportPath) {
                   elseif ($faultSamples.Count -ge 3) { 'medium' }
                   else { 'low' }
 
-    [ordered]@{
+    [pscustomobject][ordered]@{
         RunId = $report.RunId; Experiment = $experiment; TargetService = $report.TargetService
         ReportPath = $path; ResilienceScore = $score
         FaultSampleCount = $faultSamples.Count; Confidence = $confidence
@@ -167,12 +167,126 @@ $analyses = foreach ($path in $ReportPath) {
 }
 
 $analyses = @($analyses)
+
+# --- Topology risk, inferred from the dependency map --------------------------
+# This is deliberately kept separate from everything above. Scores and findings
+# come from faults we actually injected and observed. What follows is inferred
+# from the shape of the graph and has never been tested, so the report must not
+# let the two read as the same kind of statement.
+$topologyRisks = @()
+$graphPath = Join-Path $PSScriptRoot 'results/dependency-map/graph.json'
+$graph = $null
+if (Test-Path $graphPath) {
+    $graph = Get-Content $graphPath -Raw | ConvertFrom-Json
+    foreach ($entry in $graph.mostDependedOn) {
+        $kinds = @($graph.edges | Where-Object { $_.to -eq $entry.service } |
+            ForEach-Object { $_.kind } | Sort-Object -Unique)
+        # Degree alone is misleading: every service logs to Seq, which makes the
+        # log sink the most connected node and the least critical one. What
+        # matters is whether a dependent needs it to serve or to stay correct.
+        $loadBearing = @($kinds | Where-Object { $_ -in @('database', 'publish', 'subscribe', 'rest') })
+        $risk = if ($loadBearing.Count -eq 0) { 'low' }
+                elseif ($entry.dependentCount -ge 4) { 'high' }
+                elseif ($entry.dependentCount -ge 2) { 'medium' }
+                else { 'low' }
+        $rationale = if ($loadBearing.Count -eq 0) {
+            "$($entry.dependentCount) dependents, but only via $($kinds -join '/'). Losing it costs observability, not function."
+        } else {
+            "$($entry.dependentCount) dependents over $($loadBearing -join '/') edges. A fault here stops work, not just reporting."
+        }
+        $topologyRisks += [pscustomobject][ordered]@{
+            Service = $entry.service; DependentCount = $entry.dependentCount
+            EdgeKinds = $kinds; Risk = $risk; Basis = 'inferred from dependency map; not injected'
+            Rationale = $rationale; Dependents = $entry.dependents
+        }
+    }
+    $topologyRisks = @($topologyRisks | Sort-Object -Property @{Expression={@{high=0;medium=1;low=2}[$_.Risk]}}, @{Expression='DependentCount';Descending=$true})
+}
+
+# --- Per-experiment aggregate ------------------------------------------------
+$experiments = @()
+foreach ($group in $analyses | Group-Object Experiment) {
+    # Only runs that actually injected and probed enough to mean something feed
+    # the headline score. A one-probe abort is kept in the history, not averaged
+    # into the result.
+    $credible = @($group.Group | Where-Object { $_.Confidence -ne 'low' -and $null -ne $_.ResilienceScore })
+    $scored = if ($credible.Count -gt 0) { $credible } else { @() }
+    $experiments += [pscustomobject][ordered]@{
+        Experiment = $group.Name
+        TotalRuns = $group.Count
+        CredibleRuns = $credible.Count
+        BestScore = $(if ($scored.Count -gt 0) { ($scored | Measure-Object -Property ResilienceScore -Maximum).Maximum } else { $null })
+        WorstScore = $(if ($scored.Count -gt 0) { ($scored | Measure-Object -Property ResilienceScore -Minimum).Minimum } else { $null })
+        RepresentativeScore = $(if ($scored.Count -gt 0) { [math]::Round(($scored | Measure-Object -Property ResilienceScore -Average).Average) } else { $null })
+        ScoreBasis = $(if ($scored.Count -gt 0) { "mean of $($credible.Count) run(s) with medium or better confidence" } else { 'no credible run yet' })
+        MeasuredDimensions = @($group.Group.ScoredDimensions | Sort-Object -Unique)
+        NeverMeasured = @($group.Group[0].Dimensions.Name | Where-Object { $_ -notin @($group.Group.ScoredDimensions | Sort-Object -Unique) })
+    }
+}
+$experiments = @($experiments | Sort-Object Experiment)
+
+# --- Consolidated findings ----------------------------------------------------
+# A problem seen in four runs is not four problems. Reproduction is what turns a
+# single observation into something worth acting on, so it drives confidence.
+$consolidated = @()
+foreach ($group in ($analyses.Findings | Where-Object { $_ } | Group-Object Title)) {
+    $count = $group.Count
+    $confidence = if ($count -ge 3) { 'high' } elseif ($count -ge 2) { 'medium' } else { 'low' }
+    $first = $group.Group[0]
+    $consolidated += [pscustomobject][ordered]@{
+        Title = $group.Name; Severity = $first.Severity; Status = 'observed'
+        ReproducedInRuns = $count; Confidence = $confidence
+        Hypothesis = $first.Hypothesis; Evidence = $first.Evidence
+        Recommendation = $first.Recommendation
+    }
+}
+$consolidated = @($consolidated | Sort-Object -Property @{Expression={@{High=0;Medium=1;Low=2}[$_.Severity]}}, @{Expression='ReproducedInRuns';Descending=$true})
+
+# --- Coverage gaps ------------------------------------------------------------
+$targeted = @($analyses.TargetService | Sort-Object -Unique)
+$coverageGaps = @()
+if ($graph) {
+    foreach ($risk in $topologyRisks | Where-Object { $_.Risk -in @('high', 'medium') }) {
+        if ($risk.Service -notin $targeted) {
+            $coverageGaps += [pscustomobject][ordered]@{
+                Kind = 'untested dependency'; Service = $risk.Service
+                Detail = "$($risk.Risk) inferred risk ($($risk.DependentCount) dependents) and no experiment has ever targeted it."
+            }
+        }
+    }
+}
+foreach ($e in $experiments) {
+    foreach ($dimension in $e.NeverMeasured) {
+        $coverageGaps += [pscustomobject][ordered]@{
+            Kind = 'unmeasured dimension'; Service = $e.Experiment
+            Detail = "$dimension has never been measured by this experiment, so its score says nothing about it."
+        }
+    }
+}
+
+# --- Cross-experiment comparison ---------------------------------------------
+$comparison = $null
+$scoredExperiments = @($experiments | Where-Object { $null -ne $_.RepresentativeScore })
+if ($scoredExperiments.Count -ge 2) {
+    $ranked = @($scoredExperiments | Sort-Object RepresentativeScore)
+    $comparison = [ordered]@{
+        WeakestExperiment = $ranked[0].Experiment
+        Ranking = @($ranked | ForEach-Object { "$($_.Experiment): $($_.RepresentativeScore)" })
+        Note = 'Scores are comparable only where the same dimensions were measured. Check NeverMeasured on each experiment before reading a gap as a real difference.'
+    }
+}
+
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $output = [ordered]@{
     GeneratedUtc = [DateTime]::UtcNow.ToString('o')
     ScoringRules = 'docs/AI_ANALYSIS_DESIGN.md'
     RecoveryTargetSeconds = $RecoveryTargetSeconds
     NarrativeLayer = 'not enabled (deterministic scorer only)'
+    Experiments = @($experiments)
+    Comparison = $comparison
+    ObservedFindings = @($consolidated)
+    InferredTopologyRisks = @($topologyRisks)
+    CoverageGaps = @($coverageGaps)
     Analyses = $analyses
 }
 $output | ConvertTo-Json -Depth 8 | Set-Content -Path (Join-Path $OutputDirectory 'analysis.json') -Encoding UTF8
