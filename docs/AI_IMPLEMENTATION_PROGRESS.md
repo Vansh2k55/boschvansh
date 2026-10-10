@@ -161,20 +161,85 @@ experiment, so they are pulled forward ahead of Phase 2 rather than left until
 late. The reason is recorded here as required.
 
 ---
+## Phase 2 — Three provider modes ✅  (`a1ad585`)
+
+Ollama-only, Groq-only, Auto. `PlanFor()` in `AiProviderRouter` is the single
+place provider order is decided, so a mode cannot be bypassed from elsewhere.
+Mode is held server-side and persisted to `results/ai-settings.json`; the
+browser requests a change but does not assert one.
+
+| Guarantee | How it is enforced |
+| --- | --- |
+| Ollama-only sends nothing to Groq | The Groq provider is never added to the plan |
+| Groq-only never falls back | Ollama is recorded as an explicit "no fallback" skip |
+| Auto skips Groq with no key | Avoids calling it to collect a 401 |
+| No unbounded retries | Each provider is attempted once |
+
+**13 tests added (55 total).** The two that matter most assert the *absence* of
+a request. Verified live: Auto and Ollama resolve to `ollama`; Groq-only with
+no key reports no active provider rather than quietly answering locally.
+
+## Phase 3 — Evidence rendering ✅  (`4dc3341`)
+
+The reported defect: the UI showed `DeterministicAnalysis.Dimensions[1].Earned`.
+Fixed at the source, not with CSS.
+
+- Prompt and schema now require readable statements quoting the actual value,
+  and state that a JSON path is not an explanation.
+- `EvidenceFormatter` repairs path-shaped citations that still arrive: it walks
+  the evidence, substitutes real values, labels array elements by name
+  (`Dimensions[1]` → "Graceful degradation"), summarises cited objects, matches
+  property names case-insensitively and drops duplicates.
+- An unresolvable path is returned **unchanged**. It never invents a value.
+
+**17 tests added (70 total)**, including the exact screenshot string and a run
+against a real saved report. Verified live against Ollama: citations came back
+as prose quoting real values, no property paths.
+
+Two bugs were caught by those tests rather than by inspection - bare field
+names were never resolved, and named array elements duplicated their container
+label.
+
+## Safety guards adapted from PR #2 ✅  (`e25d422`)
+
+Pulled forward from Phase 6 because they are small and protect every
+experiment. Compose-ownership verification, an OS-level experiment lock, and a
+kill-switch re-check after baseline. Each was verified by firing it, not by
+reading it: a foreign container is refused, STOP engaged during baseline
+prevents injection entirely, and a second experiment is refused while the first
+holds the lock.
+
+**Record correction:** commit `e25d422` claimed a passing build and test run
+that had not executed - a stray `Dashboard` process held a file lock. Both were
+run immediately after and did pass, but the claim preceded the evidence.
+
+---
+
+## Remaining
+
+| Phase | State |
+| --- | --- |
+| 4 — Self-analysis and experiment discovery | **Not started.** Recommendations already use real evidence; the `DISCOVERED — NOT IMPLEMENTED — NOT EXECUTABLE` path is designed but not built. |
+| 5 — Experiment registry and `network-delay` | **Not started.** `ExperimentCatalog` is already the single source of truth; the adapted `tc` sidecar experiment is specified in `docs/AI_EXPERIMENT_DESIGN.md` and not implemented. |
+| 6 — Safety hardening | **Partly done** via the guards above. Watchdog-under-kill remains untested. |
+| 7 — Integration and live verification | **Not started.** Groq has never run live - no key. |
+| 8 — Final report | Pending. |
+
+## Known gaps, unchanged
+
+- **Groq is unverified live.** 70 tests use a stubbed transport. Ollama is
+  verified end to end.
+- **The RabbitMQ write/event divergence is still real and still reported.** The
+  spurious 30% on a healthy system was fixed; a genuine broker outage still
+  loses the event. No outbox exists and nothing claims one does.
+- Watchdog restore is implemented in both experiments but never tested by
+  killing PowerShell mid-run.
+- `kill-rabbitmq` threshold rollback is untested - module pages stay healthy
+  during a broker outage, so nothing trips it.
+
 ## Next action
 
-Settle the reconciliation question, then begin Phase 1.
+Phase 4: build the `DISCOVERED — NOT IMPLEMENTED — NOT EXECUTABLE` path so the
+model can name an unmeasured risk without that idea having any route to
+execution. Everything it needs exists.
 
-Nothing on the remote has been altered: no branch was merged, rebased, deleted
-or force-pushed. `main` only gained documentation.
-
-## Resume commands
-
-```powershell
-git fetch origin --prune
-git log --oneline -5
-git status --short
-dotnet build dashboard/Dashboard.csproj
-dotnet test dashboard.Tests
-docker compose -f src/docker-compose.yml ps
-```
