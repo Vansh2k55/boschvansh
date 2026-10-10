@@ -42,6 +42,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'ChaosSafety.psm1') -Force
 $repo = Split-Path $PSScriptRoot -Parent
 $composeFile = Join-Path $repo 'src/docker-compose.yml'
 $stopFile = Join-Path $PSScriptRoot 'STOP'
@@ -51,6 +52,7 @@ $samples = [System.Collections.Generic.List[object]]::new()
 $modules = @('CustomerManagement', 'VehicleManagement', 'WorkshopManagement')
 $service = 'rabbitmq'
 $container = $null
+$lock = $null
 $watchdog = $null
 $injected = $false
 $restored = $false
@@ -144,7 +146,7 @@ function Invoke-CustomerWrite {
 }
 
 try {
-    if (Test-Path $stopFile) { throw "Remove $stopFile before starting a new experiment." }
+    Assert-KillSwitchClear -StopFile $stopFile -Context 'before starting'
 
     # Blast radius: this must never reach a Docker endpoint that is not the
     # local sandbox. Checked before anything is touched.
@@ -154,6 +156,12 @@ try {
     $context = (Invoke-Docker -DockerArgs @('context', 'show') | Out-String).Trim()
     $endpoint = (Invoke-Docker -DockerArgs @('context', 'inspect', $context, '--format', '{{.Endpoints.docker.Host}}') | Out-String).Trim()
     if ($env:DOCKER_HOST -or $endpoint -notmatch '^npipe://') { throw 'This experiment requires a local Windows Docker named-pipe context.' }
+
+    # Blast radius: the container must belong to this checkout, and no other
+    # experiment may be running anywhere on the machine.
+    $project = Assert-SandboxContainer -ComposeFile $composeFile -Service 'rabbitmq' -ContainerId $container
+    $lock = Enter-ExperimentLock -Path (Join-Path $PSScriptRoot 'experiment.lock')
+    Write-Host "Target: rabbitmq (Compose project: $project)"
 
     $portLine = (Invoke-Docker -DockerArgs @('compose', '-f', $composeFile, 'port', 'customermanagementapi', '5100') | Out-String).Trim()
     if (-not $portLine) { throw 'Could not resolve the Customer API published port.' }
@@ -180,6 +188,8 @@ try {
     }
     $baselineWrite = Invoke-CustomerWrite 'baseline'
     if (-not $baselineWrite.Accepted) { throw 'Baseline customer write failed. No fault was injected.' }
+
+    Assert-KillSwitchClear -StopFile $stopFile -Context 'during baseline'
 
     # The watchdog restores the broker even if this script is killed outright.
     $watchdog = Start-Job -ArgumentList $composeFile, $service, $DowntimeSeconds -ScriptBlock {
@@ -228,6 +238,7 @@ finally {
         }
         catch { $failure = "Restore failed: $($_.Exception.Message)" }
     }
+    if ($lock) { $lock.Dispose(); $lock = $null }
     if ($watchdog -and $restored) {
         Stop-Job $watchdog
         Remove-Job $watchdog -Force

@@ -8,6 +8,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'ChaosSafety.psm1') -Force
 $repo = Split-Path $PSScriptRoot -Parent
 $composeFile = Join-Path $repo 'src/docker-compose.yml'
 $stopFile = Join-Path $PSScriptRoot 'STOP'
@@ -16,6 +17,7 @@ $outputDir = Join-Path $PSScriptRoot "results/$runId"
 $samples = [System.Collections.Generic.List[object]]::new()
 $modules = @('CustomerManagement', 'VehicleManagement', 'WorkshopManagement')
 $container = $null
+$lock = $null
 $watchdog = $null
 $injected = $false
 $restored = $false
@@ -60,13 +62,19 @@ function Measure-Module {
 }
 
 try {
-    if (Test-Path $stopFile) { throw "Remove $stopFile before starting a new experiment." }
+    Assert-KillSwitchClear -StopFile $stopFile -Context 'before starting'
     $ids = @(Invoke-Docker -DockerArgs @('compose', '-f', $composeFile, 'ps', '-q', 'workshopmanagementapi'))
     if ($ids.Count -ne 1 -or -not $ids[0]) { throw 'Expected exactly one running workshopmanagementapi container.' }
     $container = "$($ids[0])".Trim()
     $context = (Invoke-Docker -DockerArgs @('context', 'show') | Out-String).Trim()
     $endpoint = (Invoke-Docker -DockerArgs @('context', 'inspect', $context, '--format', '{{.Endpoints.docker.Host}}') | Out-String).Trim()
     if ($env:DOCKER_HOST -or $endpoint -notmatch '^npipe://') { throw 'This experiment requires a local Windows Docker named-pipe context.' }
+
+    # Blast radius: the container must belong to this checkout, and no other
+    # experiment may be running anywhere on the machine.
+    $project = Assert-SandboxContainer -ComposeFile $composeFile -Service 'workshopmanagementapi' -ContainerId $container
+    $lock = Enter-ExperimentLock -Path (Join-Path $PSScriptRoot 'experiment.lock')
+    Write-Host "Target: workshopmanagementapi (Compose project: $project)"
 
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     for ($round = 0; $round -lt $BaselineRounds; $round++) {
@@ -78,6 +86,10 @@ try {
         }
         Start-Sleep -Seconds 1
     }
+
+    # The operator may have engaged the kill switch during the baseline,
+    # which takes several seconds. Without this, the fault still goes in.
+    Assert-KillSwitchClear -StopFile $stopFile -Context 'during baseline'
 
     # The independent watchdog restores the service even if a request stalls.
     $watchdog = Start-Job -ArgumentList $container, $DurationSeconds -ScriptBlock {
@@ -114,6 +126,7 @@ finally {
         }
         catch { $failure = "Restore failed: $($_.Exception.Message)" }
     }
+    if ($lock) { $lock.Dispose(); $lock = $null }
     if ($watchdog -and $restored) {
         Stop-Job $watchdog
         Remove-Job $watchdog -Force

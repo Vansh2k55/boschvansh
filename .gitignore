@@ -278,3 +278,6 @@ dotnet-install.sh
 /dashboard/obj/
 /dashboard.Tests/bin/
 /dashboard.Tests/obj/
+
+# Experiment concurrency lock (runtime artifact)
+/chaos-scripts/experiment.lock
