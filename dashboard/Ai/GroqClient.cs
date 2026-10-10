@@ -40,6 +40,30 @@ public sealed class GroqClient(HttpClient http, AiOptions options) : IAiProvider
                 ? "Cloud provider configured."
                 : "GROQ_API_KEY is not set, so no request will be sent to Groq."));
 
+    /// <summary>Extracts the upstream error message, if the body is the shape we expect.</summary>
+    /// <remarks>
+    /// Reads one known field rather than echoing the body. Anything that does
+    /// not parse, or is not a plain string, yields nothing - a missing
+    /// explanation is better than passing through arbitrary upstream text.
+    /// </remarks>
+    private static string DescribeUpstreamError(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+        try
+        {
+            var message = JsonNode.Parse(raw)?["error"]?["message"]?.GetValue<string>();
+            if (string.IsNullOrWhiteSpace(message)) return string.Empty;
+
+            var trimmed = message.Trim();
+            if (trimmed.Length > 200) trimmed = trimmed[..200] + "…";
+            return $" Upstream said: {trimmed}";
+        }
+        catch (Exception)
+        {
+            return string.Empty;
+        }
+    }
+
     public async Task<(bool Ok, string? Content, string? Error)> CompleteAsync(
         string systemPrompt, string userPrompt, string schemaName, JsonNode jsonSchema, CancellationToken ct)
     {
@@ -115,9 +139,13 @@ public sealed class GroqClient(HttpClient http, AiOptions options) : IAiProvider
                     HttpStatusCode.Forbidden => "Groq denied access",
                     _ => $"Groq returned {(int)response.StatusCode}",
                 };
-                // Error bodies and transport messages can echo credentials or
-                // request evidence. Never return them to the dashboard/audit log.
-                return (false, null, $"{reason}.");
+                // Raw error bodies and transport messages are never echoed - they
+                // can carry request evidence and are attacker-influenced text.
+                // But "Groq returned 400." with no reason is close to useless,
+                // and a mistyped model id is the likeliest first failure. So the
+                // upstream message is taken from a known field if it parses as
+                // one, bounded, and nothing else is returned.
+                return (false, null, $"{reason}.{DescribeUpstreamError(raw)}");
             }
 
             try
