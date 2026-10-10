@@ -1,3 +1,7 @@
+# Audit update, 11 October 2026
+
+Recovery audit: network retention verified on disposable targets; crash Start-Job recovery failed parent termination/session exit. See docs/RECOVERY_SAFETY_AUDIT.md. No Pitstop fault injected.
+
 # START HERE
 
 > **Resuming in a new session? Read `docs/NEXT_LLM_CHECKLIST.md` first.** It
