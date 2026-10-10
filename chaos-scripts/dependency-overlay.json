@@ -1,0 +1,50 @@
+{
+  "description": "Edges that neither Docker Compose nor appsettings can express. Compose records only container start order; appsettings.Production.json gives REST, database, mail and logging targets. What is left is the RabbitMQ event topology - which service publishes which event and who consumes it - and that only exists in the handler code, so it is recorded here.",
+  "derivedFrom": [
+    "src/*/*.cs (PublishMessageAsync call sites)",
+    "src/*/*Worker.cs and *EventHandler.cs (HandleMessageAsync switch arms)"
+  ],
+  "publishes": {
+    "customermanagementapi": [
+      "CustomerRegistered"
+    ],
+    "vehiclemanagementapi": [
+      "VehicleRegistered"
+    ],
+    "workshopmanagementapi": [
+      "WorkshopPlanningCreated",
+      "MaintenanceJobPlanned",
+      "MaintenanceJobFinished"
+    ],
+    "timeservice": [
+      "DayHasPassed"
+    ]
+  },
+  "subscribes": {
+    "workshopmanagementeventhandler": [
+      "CustomerRegistered",
+      "VehicleRegistered",
+      "MaintenanceJobPlanned",
+      "MaintenanceJobFinished"
+    ],
+    "invoiceservice": [
+      "CustomerRegistered",
+      "MaintenanceJobPlanned",
+      "MaintenanceJobFinished",
+      "DayHasPassed"
+    ],
+    "notificationservice": [
+      "CustomerRegistered",
+      "MaintenanceJobPlanned",
+      "MaintenanceJobFinished",
+      "DayHasPassed"
+    ],
+    "auditlogservice": [
+      "*"
+    ]
+  },
+  "notes": {
+    "auditlogservice": "Logs every message type it receives rather than switching on a known set, so it is modelled as a wildcard subscriber.",
+    "webapp": "The only user-facing entry point. A module page renders an offline placeholder when its API is unreachable, which is what the chaos probes assert on."
+  }
+}

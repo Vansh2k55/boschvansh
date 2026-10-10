@@ -269,3 +269,6 @@ dotnet-install.sh
 .containerdata
 # Nested local clone used for scratch comparison - not part of the repo
 /pitstop/
+
+# Generated chaos-experiment evidence - keep selected runs out of band
+/chaos-scripts/results/
