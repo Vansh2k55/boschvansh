@@ -25,7 +25,9 @@ chaos-scripts/   Experiments, the dependency mapper and the scorer. Our code.
   analyze.ps1              Deterministic resilience agent (read-only, no network)
   test-publish-integrity.ps1  Regression test for the write/event divergence
   results/                 Generated evidence and audit.jsonl, gitignored
-dashboard/       Live resilience console (ASP.NET Core, no package references)
+dashboard/       Live resilience console + Grok advisory layer (ASP.NET Core)
+  Ai/                      GrokClient, RecommendationValidator, ExperimentCatalog
+dashboard.Tests/ xUnit safety tests (no real API calls, no real faults)
 docs/            Plan, status, handover, team tasks, generated map, experiment write-ups
 src/             Upstream Pitstop. Change only to fix something genuinely broken.
 ```
@@ -70,7 +72,10 @@ These are the point of the project. Treat them as binding.
    threshold that aborts, and a STOP-file check. Safety is not a follow-up commit.
 4. **Rollback survives the script dying.** `kill-service.ps1` uses an independent
    watchdog job for exactly this. Copy that pattern.
-5. **The model recommends, it never executes.** Validate every suggestion against
+5. **The model recommends, it never executes.** The experiment allowlist lives
+   in `ExperimentCatalog`; `RecommendationValidator` rejects anything outside
+   it. The model cannot invent an experiment, choose a target or widen a
+   duration, and out-of-range values are rejected rather than clamped. Validate every suggestion against
    an allowlist before a human is offered it. Never run model-generated shell
    commands. **No score, no number and no ranking may come from a model** — they
    come from published rules in code, so they are reproducible and checkable.

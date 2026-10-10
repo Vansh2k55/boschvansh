@@ -34,10 +34,17 @@ docker build -t pitstop-dotnet-aspnet-base:1.0 . -f dotnet-aspnet-base-dockerfil
 docker compose up -d --build
 ```
 
-Dashboard:
+Dashboard (set the Grok key first if you want the AI panels — see
+`docs/GROK_SETUP.md`; everything works without it):
 
-```bash
+```powershell
 dotnet run --project dashboard/Dashboard.csproj --urls http://localhost:5280
+```
+
+Tests:
+
+```powershell
+dotnet test dashboard.Tests
 ```
 
 **Dashboard: http://localhost:5280** · Site 7005 · RabbitMQ 15672 · MailDev 4000 · Seq 5341.
@@ -117,9 +124,9 @@ outbox and is the largest remaining piece of work.
 
 ## Not done
 
-- **No LLM call exists anywhere in the repo.** No key, no network call. The
-  design and the deterministic agent are built; the narrative layer is step 3 in
-  `docs/AI_ANALYSIS_DESIGN.md`.
+- Grok integration is **built and tested, but has never run against the real
+  API** — no key was available in the session that wrote it. The 29 tests use a
+  stubbed transport. First real call is the one thing still unverified.
 - Durable publishing (transactional outbox). The spurious 30% is fixed; a real broker outage still loses the event.
 - No network-delay or database experiment.
 - Watchdog restore untested in both experiments (needs PowerShell killed mid-run).
@@ -131,9 +138,8 @@ outbox and is the largest remaining piece of work.
 
 ## Highest-priority next action
 
-Build the narrative layer on `analyze.ps1` (step 3 in
-`docs/AI_ANALYSIS_DESIGN.md`) — additive, and everything it needs already
-exists. It is the only P2 gap left.
+Set `XAI_API_KEY` (see `docs/GROK_SETUP.md`) and make one real Grok call, to
+confirm the live contract matches what the stubbed tests assert.
 
 After that, the transactional outbox (option C in `docs/publish-integrity.md`),
 which is the one part of the integrity problem still open.
