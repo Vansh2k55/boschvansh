@@ -1,3 +1,7 @@
+# Audit update, 11 October 2026
+
+Experiment branch review: reject wholesale alternative architecture and shared-database crash execution. See docs/EXPERIMENT_COMPATIBILITY_AUDIT.md. No executable experiment imported.
+
 # START HERE
 
 > **Resuming in a new session? Read `docs/NEXT_LLM_CHECKLIST.md` first.** It
