@@ -9,7 +9,7 @@ Provider audit: wrong-envelope fallback, body deadlines and error-body privacy
 hardened; 132 unit/mocked tests passed. No live provider verification. See
 docs/AI_RELIABILITY_AUDIT.md.
 Experiment branch review: reject wholesale alternative architecture and shared-database crash execution. See docs/EXPERIMENT_COMPATIBILITY_AUDIT.md. No executable experiment imported.
-# Project status
+Reproducibility audit: setup and safe demo guide added in docs/REPRODUCIBLE_DEMO.md. Cold builds, live providers and a full fault demo remain unverified.# Project status
 
 Last updated: 2026-10-10, after PR #1 was merged · `main` (see `docs/HANDOVER.md`
 for the exact commit) · working tree clean
