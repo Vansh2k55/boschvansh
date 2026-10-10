@@ -1,3 +1,7 @@
+# Audit update, 11 October 2026
+
+Provider audit: wrong-envelope fallback, body deadlines and error-body privacy hardened; 132 unit/mocked tests passed. No live provider verification. See docs/AI_RELIABILITY_AUDIT.md.
+
 # Project status
 
 Last updated: 2026-10-10, after PR #1 was merged · `main` (see `docs/HANDOVER.md`

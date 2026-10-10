@@ -1,3 +1,7 @@
+# Audit update, 11 October 2026
+
+Provider audit: wrong-envelope fallback, body deadlines and error-body privacy hardened; 132 unit/mocked tests passed. No live provider verification. See docs/AI_RELIABILITY_AUDIT.md.
+
 # START HERE
 
 > **Resuming in a new session? Read `docs/NEXT_LLM_CHECKLIST.md` first.** It
