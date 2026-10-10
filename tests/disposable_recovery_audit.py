@@ -134,13 +134,18 @@ def main():
                 containers.append(cid)
                 owned(cid)
                 text = (ROOT / f"chaos-scripts/{name}.ps1").read_text(encoding="utf-8")
-                job = re.search(r"\$watchdog = Start-Job .*?^    \}", text, re.M | re.S)[0]
+                # The Start-Job watchdogs were replaced with detached containers after
+                # this audit proved a job does not survive its parent. Extract the new
+                # call and let it run through the real ChaosSafety module.
+                job = re.search(r"^\s*\$watchdog = Start-RestartWatchdog .*$", text, re.M)[0]
                 # Keep Compose project explicit through environment inherited by job.
                 env = dict(os.environ, COMPOSE_PROJECT_NAME=project)
                 for mode in ("forced_parent_termination", "session_exit"):
                     docker("start", cid)
+                    module = (ROOT / "chaos-scripts/ChaosSafety.psm1").as_posix()
                     script = (f"$container='{cid}'; $composeFile='{compose}'; $service='{service}'; "
-                              "$DurationSeconds=5; $DowntimeSeconds=5;\n" + job +
+                              "$DurationSeconds=5; $DowntimeSeconds=5;\n"
+                              f"Import-Module '{module}' -Force\n" + job +
                               f"\n& docker stop -t 0 {cid} | Out-Null\n" +
                               ("Start-Sleep -Seconds 30" if mode == "forced_parent_termination" else "exit 0"))
                     path = Path(tmp) / "parent.ps1"
@@ -155,8 +160,14 @@ def main():
                         if mode == "forced_parent_termination":
                             parent.kill()
                         parent.wait(timeout=10)
-                        time.sleep(8)
-                        result[f"{name}_{mode}"] = {"restarted_by_job": owned(cid)["State"]["Running"]}
+                        # Wait to the watchdog's documented deadline, not a fixed 8s. The old
+                        # Start-Job fired at $duration; the detached container fires at
+                        # $duration + 15s grace, so a short window measures the clock, not the
+                        # watchdog.
+                        restart_deadline = time.monotonic() + 5 + 15 + 10
+                        while not owned(cid)["State"]["Running"] and time.monotonic() < restart_deadline:
+                            time.sleep(.5)
+                        result[f"{name}_{mode}"] = {"restarted_by_watchdog": owned(cid)["State"]["Running"]}
                     finally:
                         if parent.poll() is None:
                             parent.kill()

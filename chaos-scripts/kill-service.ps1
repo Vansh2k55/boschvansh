@@ -91,13 +91,11 @@ try {
     # which takes several seconds. Without this, the fault still goes in.
     Assert-KillSwitchClear -StopFile $stopFile -Context 'during baseline'
 
-    # The independent watchdog restores the service even if a request stalls.
-    $watchdog = Start-Job -ArgumentList $container, $DurationSeconds -ScriptBlock {
-        param($target, $duration)
-        Start-Sleep -Seconds $duration
-        & docker start $target
-        if ($LASTEXITCODE -ne 0) { throw 'Watchdog could not restore the container.' }
-    }
+    # A detached container, not a Start-Job. The disposable audit proved the
+    # job never ran once its parent was killed, which is the only failure a
+    # watchdog exists for. Docker owns this one.
+    $watchdog = Start-RestartWatchdog -ContainerId $container -DelaySeconds $DurationSeconds
+    Write-Host "Watchdog container: $($watchdog.Substring(0, [Math]::Min(12, $watchdog.Length)))"
     $injected = $true
     $faultAt = [DateTime]::UtcNow
     Invoke-Docker -DockerArgs @('kill', $container) | Out-Null
@@ -127,14 +125,10 @@ finally {
         catch { $failure = "Restore failed: $($_.Exception.Message)" }
     }
     if ($lock) { $lock.Dispose(); $lock = $null }
-    if ($watchdog -and $restored) {
-        Stop-Job $watchdog
-        Remove-Job $watchdog -Force
-    }
-    elseif ($watchdog) {
-        Wait-Job $watchdog -Timeout ($DurationSeconds + 10) | Out-Null
-        Receive-Job $watchdog -ErrorAction Continue | Out-Host
-    }
+    # Removed only when the restart command succeeded. Otherwise the watchdog
+    # is the only thing left that will bring the target back, so killing it
+    # here would destroy the safety net at the moment it is needed.
+    Stop-RestartWatchdog -WatchdogId $watchdog -RestoreVerified $restored -FiresWithinSeconds ($DurationSeconds + 15)
 }
 
 if ($restored) {
@@ -164,3 +158,4 @@ if (Test-Path $outputDir) {
 }
 if ($failure -or -not $recovered) { throw "Experiment did not complete successfully. $failure Rollback: $reason" }
 Write-Host "Service recovered. Rollback: $reason"
+
