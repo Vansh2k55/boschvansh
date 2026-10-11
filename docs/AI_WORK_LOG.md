@@ -2,6 +2,73 @@
 
 Chronological. Newest first. Commits are real; anything unverified says so.
 
+## 2026-10-11 — Phases 0–6, final delivery
+
+**State at start:** `main` @ `d6a3eb5`, clean, synced. Ended at `285557b`.
+
+**Phase 0 — audit, not trust.** Prior summaries were re-checked. Two claims in
+my own last report were stale: the dashboard had no "Day 1"/"Day 2" labels to
+remove, and 193 tests was accurate. `docs/REQUIREMENTS_EVIDENCE.md` records
+every requirement against what actually satisfies it.
+
+**A real safety defect, found by closing a test gap.** `kill-service` was the
+one experiment whose cleanup block the contract harness never executed. It and
+`kill-rabbitmq` declared restoration from the exit code of `docker start`
+alone. A zero exit code means the start command was accepted, not that the
+container stayed up - and that value decides whether `Stop-RestartWatchdog`
+deletes the watchdog. A container that started and immediately died would have
+lost its only independent route back, at the moment it was needed. Both now
+verify `State.Status`; `kill-database` verified it but only printed the reason,
+so it now records it. Harness: 32 → 56 assertions, all three crash experiments'
+real `finally` blocks executed against a healthy restart and a stuck container.
+Confirmed with a live `kill-service` run: restored, recovered in 6.04s.
+
+**The AI planner was broken, and only a live call showed it.** One
+recommendation through the real dashboard returned **HTTP 503**: Groq 400, and
+`ollama: Ollama timed out after 240s`. No recommendation at all. Both models
+were then timed against the real schema and the real 8.2KB evidence payload,
+using OllamaClient's exact request shape:
+
+    qwen2.5:3b   18.4s cold, 9.1-9.5s warm, conforming, deterministic
+    qwen3.5:4b   exceeded 240s, produced nothing
+
+`qwen2.5:3b` is now the default in appsettings **and** in the C# default, so a
+missing config cannot restore a model that does not finish.
+
+**Groq: still UNVERIFIED, and now precisely diagnosed.** The schema was
+eliminated offline - it walks clean against strict structured-output rules at
+all three object levels, no unsupported keywords. And the running dashboard
+turned out to be a **stale build**: its `/api/state` offers 3 executable
+experiments, not 5, so it predates `59874e1` and therefore `ad4f118`, which
+added `max_completion_tokens`. Its error also lacked the `failed_generation`
+tail that commit appends. The 400 came from a build without the fix. The fix is
+committed and has never run. No further Groq calls were spent.
+
+**A fabricated finding, removed.** The analyzer raised "Service did not recover
+within the timeout" at High severity whenever `Recovered` was false - including
+runs that aborted before injecting anything. Both such runs carry
+`FaultStartedUtc=null` and "No fault was injected". The safety controls working
+were being scored as a resilience weakness, and it would have shipped in the
+findings report. Across 29 runs there are now **zero genuine recovery
+failures**.
+
+**Dashboard.** Nine milestone-oriented areas, each with a status pill computed
+from live state - nothing hardcoded to a happy value. A baseline/impact/recovery
+chart drawn from recorded samples, with two honesty defects fixed while
+verifying it in a browser: "not probed" was being reported for a module that was
+probed and failed every time, and failed probes' timeout values were setting the
+y-axis, flattening every real 10-22ms reading under a 5168ms ceiling.
+
+**Deliverables.** All five written from real evidence and verified through a new
+`/api/submission` endpoint that reads the filesystem: README (which had claimed
+the dashboard and AI planning were "planned work"), architecture overview,
+findings report, demo script, team form. **No video is recorded**, and the
+endpoint reports that rather than inferring otherwise.
+
+**Final:** 193 tests, 56 contract assertions, 13/13 containers, no leftover
+watchdogs, no STOP file, `qdisc noqueue` on the shaping target, all three pages
+200 at 14-20ms.
+
 ## 2026-10-11 — Phase 4, `kill-database` reaches five executable experiments
 
 **State at start:** `main` @ `59874e1`, clean, synced. No Groq API calls in this

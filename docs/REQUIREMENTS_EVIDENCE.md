@@ -11,8 +11,9 @@ status words are used strictly:
 | **Unverified** | Code exists; the thing it talks to has never confirmed success. |
 | **Not started** | Nothing exists yet. |
 
-Audited at commit `d6a3eb5`, branch `main`, working tree clean, in sync with
-`origin/main`. Prior agent summaries were treated as claims and re-checked.
+Audited at commit `d6a3eb5` and updated through `285557b`, branch `main`,
+working tree clean, in sync with `origin/main`. Prior agent summaries were
+treated as claims and re-checked.
 
 ## Application capabilities
 
@@ -51,15 +52,25 @@ finding that motivated `kill-database`.
 
 ### 3. Monitoring baseline and experiment observability
 
-**Partial.** What exists: the dashboard probes all three modules every 2s with
-status, latency, offline-page detection and error text; every experiment writes
+**Verified.** The dashboard probes all three modules every 2s with status,
+latency, offline-page detection and error text; every experiment writes
 `samples.csv` plus `report.json` with per-probe `Phase` (`baseline`, `fault`,
 `recovery`), latency and health; `/api/runs/{runId}` serves those samples;
-`/api/state` lists 28 recorded runs.
+`/api/state` lists 29 recorded runs.
 
-Gap: no time-series or comparative graph. The only chart in the UI is the
-dependency map. Addressed in the monitoring-baseline phase, drawn from real
-recorded samples, never invented values.
+A baseline/impact/recovery chart now draws those recorded samples, with phase
+bands making the impact a visible region. Verified in the browser against run
+`20261011T003459044Z`.
+
+Two honesty defects were found while verifying it, and fixed:
+
+- it labelled a module "not probed" during a fault when the module had been
+  probed and every probe failed. It now reads "all 2 probes failed", and
+  discloses partial failures as "955ms (2 of 3 failed)".
+- a failed probe's latency is a client timeout constant, not something the
+  service did. Using it for the y-axis squashed every real 10-22ms reading
+  under a 5168ms ceiling. Failures now sit on their own row and the axis is
+  scaled to real measurements.
 
 ### 4. AI-assisted planning, safe experiments, and recovery
 
@@ -85,8 +96,13 @@ application behaviour, never container status.
 **Evidence:** 193 automated tests passing, 32 recovery-contract assertions
 passing, 28 recorded runs across all five experiment types.
 
-Gap: the operator journey has not been walked end to end through the running
-dashboard in one pass. Addressed in the integration phase.
+Gap, now measured rather than assumed: a live recommendation through the real
+dashboard returned **HTTP 503** - Groq 400, and `ollama: Ollama timed out after
+240s`. The planner produced nothing. That is correct designed behaviour (no
+recommendation means nothing to approve) but it is not a usable demo, so the
+local model was replaced on measurement: `qwen2.5:3b` returns a conforming
+recommendation in 18.4s cold and 9.1-9.5s warm, where `qwen3.5:4b` exceeded
+240s and produced nothing.
 
 ### 5. AI findings and resilience assessment
 
@@ -106,9 +122,17 @@ That is not a scoring defect — blast-radius containment genuinely earns nothin
 because every module page fails. The system has no graceful degradation path
 for the loss of its shared database.
 
-Gap: the generated report lives under `chaos-scripts/results/`, which is
-gitignored, and is organised per run. A committed, aggregated findings document
-is produced in the deliverables phase.
+A committed, aggregated findings document now exists at
+`docs/FINDINGS_REPORT.md`.
+
+**A fabricated finding was found and removed.** The analyzer raised "Service
+did not recover within the timeout" at High severity whenever `Recovered` was
+false, including for runs that aborted before injecting anything. Both such
+runs carry `FaultStartedUtc=null` and "No fault was injected" - one a failed
+baseline write, one the kill switch during baseline. The safety controls
+working were being scored as a resilience weakness. The finding now requires
+that a fault actually started, and across 29 runs there are **zero genuine
+recovery failures**.
 
 ## Provider status
 
@@ -148,11 +172,14 @@ logged.
 
 | # | Deliverable | Status |
 | --- | --- | --- |
-| 1 | Source code and README | README stale — understates the project |
-| 2 | Demo video (≤3 min) | Script material exists in `docs/REPRODUCIBLE_DEMO.md`; no timed 3-minute script, **no video recorded** |
-| 3 | Architecture overview | Not started. `docs/arc42/` is upstream Pitstop's, not ours |
-| 4 | Findings report | Source evidence exists and is current; no committed aggregated report |
-| 5 | Team form information | Team data exists in the README; no ready-to-copy document |
+| 1 | Source code and README | **Complete** — `README.md`, rewritten to match what exists |
+| 2 | Demo video (≤3 min) | **Script complete** — `docs/DEMO_SCRIPT.md`, timed with a shot list. **No video recorded** |
+| 3 | Architecture overview | **Complete** — `docs/ARCHITECTURE_OVERVIEW.md` |
+| 4 | Findings report | **Complete** — `docs/FINDINGS_REPORT.md`, from 29 real runs |
+| 5 | Team form information | **Complete** — `docs/TEAM_FORM.md`, unknowns left as placeholders |
+
+Verified through `/api/submission`, which reads the filesystem: all five report
+`Complete`, and `videoRecorded` is `false` rather than inferred.
 
 ## Known limitation, preserved
 
@@ -162,14 +189,39 @@ does not repair the gap, because no transactional outbox exists. This has been
 reproduced by `chaos-scripts/test-publish-integrity.ps1`. It is not solved, and
 nothing here should be read as claiming it is.
 
-## Gaps going in
+## Gaps going in, and what happened to each
 
-1. Monitoring baseline graph — the only outstanding application capability.
-2. Milestone-oriented dashboard labels with truthful per-area status.
-3. End-to-end operator journey walked in one pass.
-4. All five deliverables.
-5. `kill-service` is the one experiment whose cleanup block the contract
-   harness never executes, although it uses the same watchdog pattern as
-   `kill-rabbitmq` and `kill-database`, which are both covered.
-6. Groq end-to-end, which needs the operator's keyed process and must not block
-   anything else.
+| # | Gap | Outcome |
+| --- | --- | --- |
+| 1 | Monitoring baseline graph | **Done** — real recorded samples, two honesty defects fixed |
+| 2 | Milestone labels and truthful status | **Done** — nine areas, every pill computed from live state |
+| 3 | End-to-end operator journey | **Measured** — found both providers failing; local model fixed by measurement |
+| 4 | Five deliverables | **Done** — all five committed and verified through `/api/submission` |
+| 5 | `kill-service` cleanup never executed by the harness | **Done** — and it exposed a real safety defect, below |
+| 6 | Groq end-to-end | **Still UNVERIFIED** — see below. It did not block anything else |
+
+### The defect gap 5 exposed
+
+`kill-service` and `kill-rabbitmq` declared restoration from the exit code of
+`docker start` alone. A zero exit code means the start command was accepted,
+not that the container stayed up - and that value decides whether
+`Stop-RestartWatchdog` deletes the watchdog. A container that started and
+immediately died would have had its only independent route back removed on the
+strength of an exit code, at the moment it was needed. Both now verify
+`State.Status` and record why a restart did not take. The harness grew from 32
+to 56 assertions and executes all three crash experiments' real cleanup blocks
+against both a healthy restart and a container that reports `exited`.
+
+### Why Groq is still unverified, precisely
+
+A live recommendation through the running dashboard returned Groq 400 again.
+But the running dashboard is a **stale build**: its own `/api/state` offers
+**3** executable experiments, not 5, so it predates `59874e1` and therefore
+also `ad4f118`, the commit that added `max_completion_tokens`. Its error also
+lacked the `failed_generation` tail that `ad4f118` appends, while Groq's own
+message says that field is present - consistent with the same conclusion.
+
+So the 400 observed came from a build without the fix. The fix is committed and
+has still never run. The schema has been eliminated as a cause offline. What
+remains is to restart the dashboard from current `main` in a process that has
+`GROQ_API_KEY` in its own environment, and request one recommendation.
