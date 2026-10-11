@@ -158,11 +158,12 @@ public class ExperimentCatalogTests
     {
         // An entry appearing here that is not in this list means something
         // widened the blast radius without the review that implies.
-        Assert.Equal(4, ExperimentCatalog.All.Count);
+        Assert.Equal(5, ExperimentCatalog.All.Count);
         Assert.Contains("kill-service", ExperimentCatalog.All.Keys);
         Assert.Contains("kill-rabbitmq", ExperimentCatalog.All.Keys);
         Assert.Contains("network-delay", ExperimentCatalog.All.Keys);
         Assert.Contains("packet-loss", ExperimentCatalog.All.Keys);
+        Assert.Contains("kill-database", ExperimentCatalog.All.Keys);
     }
 
     [Fact]

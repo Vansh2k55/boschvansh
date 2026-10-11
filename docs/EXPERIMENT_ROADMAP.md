@@ -1,9 +1,9 @@
 # Experiment catalog: coverage and roadmap
 
-## Why only four today
+## Why five today
 
-Nothing is throttling the catalog: `ExperimentCatalog` holds four entries
-because four are all that have met the eight requirements in
+Nothing is throttling the catalog: `ExperimentCatalog` holds five entries
+because five are all that have met the eight requirements in
 `docs/AI_EXPERIMENT_DESIGN.md`. Registration is the last step, not the first —
 an experiment becomes executable once its cleanup is proven, not when a script
 exists. Two more scripts exist today and are surfaced as
@@ -17,16 +17,15 @@ exists. Two more scripts exist today and are surfaced as
 | `kill-rabbitmq` | Shared async dependency outage | `docker kill` + `stop` | Read paths survive; the **write path loses events** |
 | `network-delay` | Uniform added latency | `tc netem delay` via sidecar | Graceful degradation — slow but serving |
 | `packet-loss` | Partial, non-deterministic loss | `tc netem loss` via sidecar | Erratic latency under retransmit — most requests still served |
+| `kill-database` | Synchronous shared dependency outage | `docker stop` + `start` | Total failure — no graceful degradation path exists |
 
-**The gap.** `packet-loss` closed the partial-failure gap on 2026-10-11. What
-remains is still binary-ish and infrastructure-level: a thing is gone, or
-everything is uniformly slower. Two common production failure modes are
-untested:
+**The gap.** Two of the three original gaps closed on 2026-10-11:
+`packet-loss` covered partial failure, and `kill-database` covered the
+synchronous shared dependency. One remains:
 
-- **A synchronous shared dependency failing.** `sqlserver` has six dependents
-  and is the highest inferred topology risk, and has never been injected.
 - **A hung process.** Connections accepted and never answered, which exhausts
-  caller connection pools differently from a refused connection.
+  caller connection pools differently from a refused connection. This is
+  `pause-service`, and it stays unregistered until an unpause watchdog exists.
 
 ## Candidates assessed
 
@@ -77,7 +76,7 @@ count — a different delay value is not a new experiment.
   cap, out-of-range loss rejected rather than clamped, approval still required,
   a model unable to retarget it, and the runner reached only through the fake.
 
-### 2. `kill-database` — recommended second
+### 2. `kill-database` — DONE, registered and executable
 
 1. **Failure mode:** synchronous shared dependency outage.
 2. **Target:** `sqlserver`.
@@ -99,6 +98,44 @@ count — a different delay value is not a new experiment.
 10. **Architecture:** no change. Same mechanism as `kill-service`.
 
 **Risk: medium-high, mitigated by a short cap. Value: highest.**
+
+**Evidence, 2026-10-11.** The gating question was not the mechanism —
+`docker stop`/`start` was already proven — but whether the *application*
+recovers. If a dependent API cached a dead connection, restoring the target
+would not restore the system, and no amount of careful scripting would make
+this experiment reversible. So that was tested first, disposably, before a line
+of the experiment was written:
+
+- *Self-healing probe:* with `sqlserver` stopped for 20s and **no dependent
+  service restarted**, the stack returned to all-pages-healthy plus an accepted
+  write **58.6s** after `docker start`. The fault is reversible by restoring the
+  target alone.
+- *Live run* (15s): **3 of 3** module pages failed and **0 of 2** writes were
+  accepted — the predicted contrast with `kill-service` (two modules stay up)
+  and `kill-rabbitmq` (all three stay up) confirmed by measurement. Recovered
+  in 23.5s.
+- *Data safety:* `docker stop`/`start` only, never `rm`. The container and the
+  `sqlserverdata` volume survive, so nothing is discarded. Two tests assert the
+  recovery plan says so, and the contract harness asserts the cleanup block
+  contains no `rm`.
+- *Kill switch:* with a STOP file present the experiment refused to start and
+  reported "No fault was injected"; `StartedAt` on the container confirmed it
+  was untouched.
+- *Cleanup under failure:* the real `finally` block was executed against a
+  synthetic container that reports `exited` after `docker start`. It declined to
+  declare recovery and kept the watchdog alive, which is the only remaining
+  route back in that case.
+- *Graceful stop, not SIGKILL.* A database is the one target where SIGKILL
+  manufactures a corruption risk the experiment was not designed to study, so
+  this one uses `docker stop`. The outage is just as total.
+
+**Two measurement defects were found and fixed by running it.** The first live
+run probed only 2 of 3 modules and attempted no write, because each failing
+probe blocked for its full 10s timeout and overran the window — yet the report
+still carried a fixed sentence claiming a total blast radius. The fault-phase
+timeout is now 3s, the first round always completes in full, and both notes are
+built from the run's own samples. The report also states the observed fault
+duration (20.7s for a 15s request) rather than implying the request was exact.
 
 ### 3. `pause-service` — recommended third
 
@@ -141,13 +178,13 @@ meaningful.
 ## Order of work
 
 1. ~~`packet-loss`~~ — **done**, evidence above.
-2. `kill-database` — highest value, proven mechanism, tighter bounds. Next.
+2. ~~`kill-database`~~ — **done**, evidence above.
 3. `pause-service` — needs the unpause watchdog first.
 4. `cpu-pressure` — only if a load generator makes the effect measurable.
 
-Four are executable. Reaching five means `kill-database`. Six means
-`pause-service`, and that stays blocked until an unpause watchdog exists and
-has been tested — it is not made executable to reach a number.
+**Five are executable, which was the target.** A sixth would be
+`pause-service`, and it stays blocked until an unpause watchdog exists and has
+been tested. It is not made executable to reach a number.
 
 ## Status
 
@@ -155,7 +192,7 @@ has been tested — it is not made executable to reach a number.
 | --- | --- |
 | `kill-service`, `kill-rabbitmq`, `network-delay` | **Executable**, cleanup verified |
 | `packet-loss` | **Executable**, cleanup verified 2026-10-11 |
-| `kill-database` | **Planned** — next |
+| `kill-database` | **Executable**, recovery verified 2026-10-11 |
 | `pause-customer-api`, `pause-vehicle-api` | **Prepared, not executable** — no sandbox guard, no independent recovery |
 | `cpu-pressure` | **Candidate**, needs a load generator |
 | Memory pressure, network partition, dependency timeout | **Not planned**, reasons above |

@@ -54,7 +54,7 @@ public class NetworkDelayRegistrationTests
             Assert.True(spec.MaxDuration <= 120, $"{spec.Name} may run for {spec.MaxDuration}s.");
             Assert.True(spec.MinDuration > 0, $"{spec.Name} has no lower bound.");
         }
-        Assert.Equal(4, ExperimentCatalog.All.Count);
+        Assert.Equal(5, ExperimentCatalog.All.Count);
     }
 
     [Fact]

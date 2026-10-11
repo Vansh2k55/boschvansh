@@ -196,9 +196,13 @@ public class DiscoveryExecutionBoundaryTests : IDisposable
 
         var state = await (await client.GetAsync("/api/state")).Content.ReadFromJsonAsync<JsonNode>();
 
+        // Checked against the discovery's own title. This used to match any
+        // name containing "database", which stopped being a useful test once
+        // kill-database was registered: the discovery here is about database
+        // *latency*, a different failure mode that is still unregistered.
         Assert.DoesNotContain(state!["experiments"]!.AsArray(),
-            e => e!["name"]!.GetValue<string>().Contains("database", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(4, state["experiments"]!.AsArray().Count);
+            e => e!["name"]!.GetValue<string>().Equals(DiscoveredTitle, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(5, state["experiments"]!.AsArray().Count);
     }
 
     [Fact]
@@ -226,7 +230,12 @@ public class DiscoveryExecutionBoundaryTests : IDisposable
     [Theory]
     [InlineData("resource-exhaustion")]
     [InlineData("dependency-timeout")]
-    [InlineData("kill-database")]
+    // Was kill-database until it was registered with proven cleanup. Replaced
+    // with candidates that are still only candidates - see the roadmap. If one
+    // of these is ever registered, swap it out rather than deleting the case.
+    [InlineData("pause-service")]
+    [InlineData("cpu-pressure")]
+    [InlineData("network-partition")]
     public async Task Plausible_future_experiment_names_are_all_refused(string name)
     {
         // Exactly the names a model proposes. None is registered, so none runs,

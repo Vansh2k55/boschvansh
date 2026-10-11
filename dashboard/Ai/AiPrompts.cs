@@ -24,6 +24,10 @@ public static class AiPrompts
                            target: workshopmanagementapi. duration 5-60 seconds.
           kill-rabbitmq  - stops the RabbitMQ broker.
                            target: rabbitmq. duration 5-120 seconds.
+          kill-database  - stops SQL Server. Every module page fails and
+                           writes are refused; widest blast radius, highest
+                           risk, so the cap is tight and recovery is slow.
+                           target: sqlserver. duration 5-30 seconds.
           packet-loss    - drops a percentage of the Workshop API's packets, so
                            most requests succeed and some stall on retransmit.
                            target: workshopmanagementapi. duration 5-60 seconds.
@@ -105,7 +109,7 @@ public static class AiPrompts
             {
                 ["type"] = "string",
                 ["description"] = "Which allowlisted experiment to run.",
-                ["enum"] = new JsonArray("kill-service", "kill-rabbitmq", "network-delay", "packet-loss"),
+                ["enum"] = new JsonArray("kill-service", "kill-rabbitmq", "network-delay", "packet-loss", "kill-database"),
             },
             ["target"] = new JsonObject
             {

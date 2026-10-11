@@ -63,6 +63,40 @@ try {
         . ([scriptblock]::Create($loop))
         Assert ($reason -eq $(if ($mode -eq 'stop') { 'Manual kill switch' } else { 'Safety threshold breached: CustomerManagement' })) "RabbitMQ fault-loop decision: $mode"
     }
+
+    # kill-database has the widest blast radius in the catalog, so its cleanup
+    # block is executed here rather than taken on trust. The case that matters
+    # is a restart that does not take: recovery must not be declared, and the
+    # watchdog must survive as the last route back.
+    $text = Get-Content (Join-Path $repo 'chaos-scripts/kill-database.ps1') -Raw
+    $cleanup = [regex]::Match($text, '(?ms)^finally \{(.*?)^\}').Groups[1].Value
+    Assert ($cleanup -match 'docker start') 'kill-database cleanup block was extracted'
+    Assert ($cleanup -notmatch 'docker\s+rm\s+\$container') 'Cleanup never removes the database container'
+    Assert ($cleanup -notmatch 'volume\s+rm') 'Cleanup never removes the data volume'
+
+    foreach ($mode in @('running', 'stuck')) {
+        $script:calls = @()
+        $stopped = $true; $watchdog = 'synthetic-watchdog'; $lock = $null
+        $restored = $false; $failure = $null; $DowntimeSeconds = 10
+        # 'stuck' models docker start reporting success while the container is
+        # not actually running - the case where trusting the exit code would
+        # declare a recovery that never happened.
+        function docker {
+            $script:calls += ($args -join ' ')
+            if ($args[0] -eq 'inspect') { return $(if ($mode -eq 'running') { 'running' } else { 'exited' }) }
+        }
+        function Stop-RestartWatchdog {
+            param([string]$WatchdogId, [bool]$RestoreVerified, [int]$FiresWithinSeconds)
+            $script:watchdogRemoved = $RestoreVerified
+        }
+        $script:watchdogRemoved = $null
+        . ([scriptblock]::Create($cleanup))
+
+        Assert ($calls -contains "start $container" -or ($calls -join ' ') -match 'start') "kill-database restarts the target: $mode"
+        Assert ($restored -eq ($mode -eq 'running')) "Recovery not declared on a stuck container: $mode"
+        Assert ($script:watchdogRemoved -eq ($mode -eq 'running')) "Watchdog retained unless restore verified: $mode"
+    }
+
 } finally {
     # Only the exact directory created above, with no application data.
     Remove-Item -LiteralPath $temp -Recurse -Force

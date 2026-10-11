@@ -97,6 +97,23 @@ public static class ExperimentCatalog
                 IntensityParameter: "-LossPercent",
                 IntensityLabel: "Loss", IntensityUnit: "%",
                 MinIntensity: 1, MaxIntensity: 40, DefaultIntensity: 20),
+
+            // The highest inferred topology risk in the dependency map - six
+            // dependents - and the only experiment where every module page is
+            // expected to fail. Registered after a disposable probe proved the
+            // stack self-heals from a stop/start with no dependent restarts.
+            ["kill-database"] = new(
+                Name: "kill-database",
+                Script: "kill-database.ps1",
+                DurationParameter: "-DowntimeSeconds",
+                // Tighter than every other experiment: the blast radius is total,
+                // so there is no unaffected module left to abort on.
+                MinDuration: 5, MaxDuration: 30, DefaultDuration: 20,
+                RequiresExecuteFlag: true,
+                Target: "sqlserver",
+                ExpectedBlastRadius: "Every module page fails and writes are refused - measured, not predicted: 3 of 3 modules down and 0 of 2 writes accepted during a 15s run. This is the widest blast radius in the catalog, because reads and writes both end at this database. Unlike kill-rabbitmq, nothing is silently lost; requests are refused outright.",
+                Risk: "high",
+                RecoveryPlan: "docker stop then start - never rm, so the container and the sqlserverdata volume survive and no data is discarded. A detached watchdog owned by Docker starts the container again even if the orchestrator is killed. Recovery is judged on every module page serving AND a customer write being accepted, not on container status: SQL Server runs well before it answers queries. Measured recovery was 23.5-58.6s after restart, which is why the budget is minutes rather than seconds."),
         };
 
     public static bool TryGet(string? name, out ExperimentSpec spec)

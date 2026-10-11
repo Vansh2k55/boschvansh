@@ -14,7 +14,7 @@ file and `git log`.
 | 1 Verify Groq live | **Provider path passed. End-to-end UNVERIFIED** — see below |
 | 2 Audit workflow against milestones | Not started |
 | 3 Implement `packet-loss` | **Done** — registered and executable, evidence below |
-| 4 Reach five executable experiments | In progress — four executable; `kill-database` is next |
+| 4 Reach five executable experiments | **Done** — five executable, each with recovery evidence |
 | 5–8 | Not started |
 
 ## Phase 1 — Groq: provider path passed, application path not yet
@@ -49,13 +49,14 @@ question is already answered.
 
 ## Experiment catalog
 
-Four executable, cleanup verified: `kill-service`, `kill-rabbitmq`,
-`network-delay`, `packet-loss`. Target is five. Order and per-candidate
-reasoning are in `docs/EXPERIMENT_ROADMAP.md`:
+**Five executable, cleanup and recovery verified:** `kill-service`,
+`kill-rabbitmq`, `network-delay`, `packet-loss`, `kill-database`. That was the
+target. Per-candidate reasoning is in `docs/EXPERIMENT_ROADMAP.md`:
 
 1. ~~`packet-loss`~~ — **done**, evidence below
-2. `kill-database` — next
-3. `pause-service` — blocked on an unpause watchdog; stays non-executable
+2. ~~`kill-database`~~ — **done**, evidence below
+3. `pause-service` — blocked on an unpause watchdog; stays non-executable, and
+   is not promoted to make the count look better
 
 ### `packet-loss` — registered 2026-10-11
 
@@ -90,6 +91,43 @@ Evidence, in the order it was produced:
 The delay-only second parameter was generalised into a labelled,
 unit-carrying `IntensityParameter`, so `network-delay` reports "Delay ms" and
 `packet-loss` "Loss %" through one mechanism instead of two.
+
+### `kill-database` — registered 2026-10-11
+
+The highest inferred topology risk in the dependency map: six dependents, never
+injected. The mechanism was already proven; the open question was whether the
+*application* recovers, because if a dependent API cached a dead connection then
+restoring the target would not restore the system and the fault would not be
+reversible. That was settled first, disposably, before the experiment was
+written.
+
+- **Self-healing probe:** `sqlserver` stopped 20s, **no dependent restarted**,
+  back to all-pages-healthy plus an accepted write **58.6s** after
+  `docker start`. Reversible by restoring the target alone.
+- **Live run** (15s): **3/3** module pages failed, **0/2** writes accepted,
+  recovered in 23.5s. The predicted contrast with `kill-service` (two modules
+  stay up) and `kill-rabbitmq` (all three stay up) is now measured, not assumed.
+- **Data safety:** `stop`/`start` only, never `rm`; the container and the
+  `sqlserverdata` volume survive. Asserted by tests and by the contract harness.
+- **Kill switch:** with a STOP file present it refused to start and reported
+  "No fault was injected"; the container's `StartedAt` confirmed it.
+- **Cleanup under failure:** the real `finally` block, executed against a
+  container that reports `exited` after `docker start`, declines to declare
+  recovery and keeps the watchdog — the only route back in that case.
+- **Tightest cap in the catalog (30s)**, and `-Execute` required. With every
+  module expected to fail there is no unaffected-module threshold to abort on,
+  so the cap and the STOP file are the only in-flight guards. A test asserts no
+  other experiment has a shorter cap.
+
+**Two measurement defects found by running it, both fixed.** The first live run
+probed 2 of 3 modules and attempted no write — each failing probe blocked for
+its full 10s timeout and overran the window — while the report still printed a
+fixed sentence claiming a total blast radius. The fault-phase timeout is now 3s,
+the first round always completes in full, and both headline notes are derived
+from the run's samples. The observed fault duration is reported alongside the
+requested one (20.7s for a 15s request) instead of the two being conflated.
+
+**Tests:** 193 passing, 32 contract assertions.
 
 Two scripts are surfaced as `PREPARED — NOT REGISTERED — NOT EXECUTABLE`.
 
