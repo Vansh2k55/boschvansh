@@ -231,7 +231,15 @@ finally {
     if ($injected) {
         try {
             Invoke-Docker -DockerArgs @('compose', '-f', $composeFile, 'start', $service) | Out-Null
-            $restored = $true
+            # Verified rather than inferred from the exit code, because this
+            # value decides whether Stop-RestartWatchdog deletes the only
+            # independent route back. A broker that starts and immediately dies
+            # would otherwise lose its safety net. Matches kill-database.
+            $state = (& docker inspect -f '{{.State.Status}}' $container 2>&1 | Out-String).Trim()
+            $restored = $state -eq 'running'
+            if (-not $restored) {
+                $failure = "Broker container did not stay running after start (state: $state)."
+            }
             $restoreAt = [DateTime]::UtcNow
         }
         catch { $failure = "Restore failed: $($_.Exception.Message)" }

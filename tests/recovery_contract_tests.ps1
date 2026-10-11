@@ -64,37 +64,50 @@ try {
         Assert ($reason -eq $(if ($mode -eq 'stop') { 'Manual kill switch' } else { 'Safety threshold breached: CustomerManagement' })) "RabbitMQ fault-loop decision: $mode"
     }
 
-    # kill-database has the widest blast radius in the catalog, so its cleanup
-    # block is executed here rather than taken on trust. The case that matters
-    # is a restart that does not take: recovery must not be declared, and the
-    # watchdog must survive as the last route back.
-    $text = Get-Content (Join-Path $repo 'chaos-scripts/kill-database.ps1') -Raw
-    $cleanup = [regex]::Match($text, '(?ms)^finally \{(.*?)^\}').Groups[1].Value
-    Assert ($cleanup -match 'docker start') 'kill-database cleanup block was extracted'
-    Assert ($cleanup -notmatch 'docker\s+rm\s+\$container') 'Cleanup never removes the database container'
-    Assert ($cleanup -notmatch 'volume\s+rm') 'Cleanup never removes the data volume'
+    # All three crash experiments share one cleanup contract, so all three have
+    # their real `finally` block executed rather than read. The case that
+    # matters is a restart that does not take: a zero exit code from
+    # docker start does not mean the container stayed up, and if that is
+    # mistaken for success the watchdog - the only independent route back - is
+    # deleted at the moment it is needed.
+    foreach ($crash in @('kill-service', 'kill-rabbitmq', 'kill-database')) {
+        $text = Get-Content (Join-Path $repo "chaos-scripts/$crash.ps1") -Raw
+        $cleanup = [regex]::Match($text, '(?ms)^finally \{(.*?)^\}').Groups[1].Value
+        Assert ($cleanup -match 'Stop-RestartWatchdog') "$crash cleanup block was extracted"
+        Assert ($cleanup -match 'State\.Status') "$crash verifies the container is running, not just the exit code"
+        Assert ($cleanup -notmatch 'docker\s+rm\s+\$container') "$crash cleanup never removes the container"
+        Assert ($cleanup -notmatch 'volume\s+rm') "$crash cleanup never removes a data volume"
 
-    foreach ($mode in @('running', 'stuck')) {
-        $script:calls = @()
-        $stopped = $true; $watchdog = 'synthetic-watchdog'; $lock = $null
-        $restored = $false; $failure = $null; $DowntimeSeconds = 10
-        # 'stuck' models docker start reporting success while the container is
-        # not actually running - the case where trusting the exit code would
-        # declare a recovery that never happened.
-        function docker {
-            $script:calls += ($args -join ' ')
-            if ($args[0] -eq 'inspect') { return $(if ($mode -eq 'running') { 'running' } else { 'exited' }) }
-        }
-        function Stop-RestartWatchdog {
-            param([string]$WatchdogId, [bool]$RestoreVerified, [int]$FiresWithinSeconds)
-            $script:watchdogRemoved = $RestoreVerified
-        }
-        $script:watchdogRemoved = $null
-        . ([scriptblock]::Create($cleanup))
+        foreach ($mode in @('running', 'stuck')) {
+            $script:calls = @()
+            # Both spellings, since the three scripts use different names for
+            # the same "a fault was injected" flag.
+            $injected = $true; $stopped = $true
+            $watchdog = 'synthetic-watchdog'; $lock = $null; $container = 'synthetic-container'
+            $restored = $false; $failure = $null
+            $DowntimeSeconds = 10; $DurationSeconds = 10
+            $composeFile = 'synthetic-compose.yml'; $service = 'synthetic-service'
+            # 'stuck' models docker start reporting success while the container
+            # is not actually running.
+            function docker {
+                $script:calls += ($args -join ' ')
+                if ($args -contains 'inspect') { return $(if ($mode -eq 'running') { 'running' } else { 'exited' }) }
+            }
+            function Invoke-Docker { param([string[]]$DockerArgs) $script:calls += ($DockerArgs -join ' ') }
+            function Stop-RestartWatchdog {
+                param([string]$WatchdogId, [bool]$RestoreVerified, [int]$FiresWithinSeconds)
+                $script:watchdogRemoved = $RestoreVerified
+            }
+            $script:watchdogRemoved = $null
+            . ([scriptblock]::Create($cleanup))
 
-        Assert ($calls -contains "start $container" -or ($calls -join ' ') -match 'start') "kill-database restarts the target: $mode"
-        Assert ($restored -eq ($mode -eq 'running')) "Recovery not declared on a stuck container: $mode"
-        Assert ($script:watchdogRemoved -eq ($mode -eq 'running')) "Watchdog retained unless restore verified: $mode"
+            Assert (($calls -join ' ') -match 'start') "$crash restarts the target: $mode"
+            Assert ($restored -eq ($mode -eq 'running')) "$crash does not declare recovery on a stuck container: $mode"
+            Assert ($script:watchdogRemoved -eq ($mode -eq 'running')) "$crash retains the watchdog unless restore is verified: $mode"
+            if ($mode -eq 'stuck') {
+                Assert (-not [string]::IsNullOrWhiteSpace($failure)) "$crash records why the restart did not take"
+            }
+        }
     }
 
 } finally {

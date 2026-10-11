@@ -253,6 +253,12 @@ finally {
             & docker start $container 2>&1 | Out-Null
             $state = (& docker inspect -f '{{.State.Status}}' $container 2>&1 | Out-String).Trim()
             $restored = $state -eq 'running'
+            # Recorded, not just printed. Without this the report would carry
+            # Restored=false next to Error=null, which says that restoration
+            # failed but not why.
+            if (-not $restored) {
+                $failure = "Database container did not stay running after start (state: $state)."
+            }
             $restoreAt = [DateTime]::UtcNow
             Write-Host "SQL Server container state after start: $state"
         }

@@ -119,7 +119,17 @@ finally {
     if ($injected) {
         try {
             Invoke-Docker -DockerArgs @('start', $container) | Out-Null
-            $restored = $true
+            # A zero exit code means the start command was accepted, not that
+            # the container stayed up. This is verified because the value below
+            # decides whether Stop-RestartWatchdog removes the only independent
+            # route back: a container that starts and immediately dies would
+            # otherwise have its safety net deleted on the strength of an exit
+            # code. kill-database already worked this way; this matches it.
+            $state = (& docker inspect -f '{{.State.Status}}' $container 2>&1 | Out-String).Trim()
+            $restored = $state -eq 'running'
+            if (-not $restored) {
+                $failure = "Container did not stay running after start (state: $state)."
+            }
             $restoreAt = [DateTime]::UtcNow
         }
         catch { $failure = "Restore failed: $($_.Exception.Message)" }
