@@ -11,16 +11,33 @@ Design, and eventual consistency.
 
 Group repository: https://github.com/saurabhshreni-cmyk/bosch-chaos-hackathon
 
-## Current Status
+## Current status
 
-- Docker Compose deployment with SQL Server data in a Docker-managed volume.
-- Workshop API crash experiment with baseline, fault, and recovery measurements.
-- Duration watchdog, early rollback on unrelated module failure or excessive
-  latency, and a manual kill switch.
-- JSON/CSV evidence and documented results from verified experiments.
+- Docker Compose deployment, 13 services, SQL Server data in a Docker-managed
+  volume.
+- **Five executable failure types**, each registered only after its cleanup was
+  proven: `kill-service`, `kill-rabbitmq`, `network-delay`, `packet-loss`,
+  `kill-database`.
+- **Resilience console** at `:5280` — service discovery, dependency map, live
+  telemetry, a baseline/impact/recovery chart, approval-gated injection, kill
+  switch, experiment history and ranked findings.
+- **AI planner**, advisory only: Groq with a strict JSON schema, falling back to
+  local Ollama, falling back to no recommendation. The model cannot invent an
+  experiment, choose a target, widen a duration, execute anything, or influence
+  any score.
+- **Deterministic scoring** — every number comes from published rules in code.
+- 29 recorded runs, **193 automated tests**, 56 recovery-contract assertions.
 
-AI planning and analysis, additional failure types, and a dashboard are planned
-work, not implemented features in this checkout.
+Honest gaps, in more detail in [the evidence matrix](docs/REQUIREMENTS_EVIDENCE.md):
+
+- **Groq is not verified end to end.** Its provider path returns 200, but no
+  dashboard recommendation has yet reported `provider: groq`. Ollama answers and
+  is what the fallback uses meanwhile.
+- **The RabbitMQ write/event divergence is real and open.** A row can commit
+  while its event is never published, and restoring the broker does not repair
+  it. No outbox exists.
+- **No video has been recorded.** The script is in
+  [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
 ## Team
 
@@ -95,26 +112,91 @@ groups of 1-3 letters or 1-3 digits, such as `ABC-12-34`.
 | Captured emails (MailDev) | http://localhost:4000 |
 | Centralized logs (Seq) | http://localhost:5341 |
 
-## Workshop Failure Experiment
-
-From the repository root, with all three module pages working:
+## The resilience console
 
 ```powershell
-./chaos-scripts/kill-service.ps1
+dotnet run --project dashboard/Dashboard.csproj --urls http://localhost:5280
 ```
 
-If your terminal is in `src`, first run `cd ..`.
+Then open `http://localhost:5280`. This is the intended way to run an
+experiment: it shows the baseline, requires explicit approval, and records
+evidence.
 
-The script captures three baseline rounds, kills the single Workshop API
-container, monitors the module pages, and starts the API again after about
-30 seconds. It restores earlier if Customer or Vehicle fails, their latency
-exceeds the configured threshold, or the manual kill switch is activated.
-It checks offline-page content as well as HTTP status, then verifies recovery.
+For the AI planner, set the key **in the window you start the dashboard from** —
+a key set in a different window is not inherited by the dashboard's process:
 
-Evidence is saved in `chaos-scripts/results/<run-id>/samples.csv` and
-`report.json`. Results are ignored by Git; retain selected evidence separately
-for submission. See [experiment documentation](docs/kill-service.md) for
-observed outcomes, options, and limitations.
+```powershell
+$env:GROQ_API_KEY = "<your key>"
+```
+
+Without a key it falls back to local Ollama. Without either, the deterministic
+assessment and the kill switch work exactly as before. Setup detail is in
+[docs/AI_SETUP.md](docs/AI_SETUP.md).
+
+## The five experiments
+
+Each is bounded, approval-gated, independently recoverable, and registered only
+after its cleanup was proven. A script exists for each, but **the catalog is the
+allowlist** — nothing runs that is not registered.
+
+| Experiment | Target | Cap | What it demonstrates |
+| --- | --- | --- | --- |
+| `kill-service` | Workshop API | 60s | Blast-radius containment: 2 of 3 modules keep serving |
+| `kill-rabbitmq` | RabbitMQ | 120s | All pages stay up while events are silently lost |
+| `network-delay` | Workshop API | 60s | Graceful degradation under uniform latency |
+| `packet-loss` | Workshop API | 60s | Partial, non-deterministic failure |
+| `kill-database` | SQL Server | 30s | Total failure: 0 of 3 pages serve, writes refused |
+
+Run one directly, from the repository root:
+
+```powershell
+./chaos-scripts/kill-service.ps1 -DurationSeconds 30
+./chaos-scripts/network-delay.ps1 -DurationSeconds 20 -DelayMilliseconds 400
+./chaos-scripts/packet-loss.ps1 -DurationSeconds 20 -LossPercent 20
+./chaos-scripts/kill-rabbitmq.ps1                    # dry run, changes nothing
+./chaos-scripts/kill-database.ps1                    # dry run, changes nothing
+```
+
+The two widest-blast-radius experiments require `-Execute` to inject; without
+it they print what they would do and change nothing.
+
+The traffic-shaping experiments need a sidecar image, built once:
+
+```powershell
+docker build -t pitstop-netem:1.0 chaos-scripts/netem-image
+docker pull docker:cli
+```
+
+Evidence lands in `chaos-scripts/results/<run-id>/samples.csv` and
+`report.json`, which Git ignores. Score the archive with:
+
+```powershell
+./chaos-scripts/analyze.ps1
+```
+
+## Safety boundaries
+
+These are the point of the project, not a feature list.
+
+- **Sandbox only.** Every experiment verifies the target belongs to this
+  Compose project and that Docker is a local named-pipe context, before
+  touching anything.
+- **Bounded before anything is injected.** A duration cap, a threshold that
+  aborts when an unaffected module degrades, and a STOP-file check.
+- **The kill switch is deterministic.** Plain file and timer logic polled by the
+  running script. It does not depend on the dashboard, the backend, or any model
+  staying up. **No LLM on the rollback path, ever.**
+- **Rollback survives the script dying.** A detached watchdog container owned by
+  Docker restores the target even if the orchestrator is killed.
+- **Restoration is verified, not assumed.** A zero exit code from `docker start`
+  does not mean the container stayed up, so its state is checked before the
+  watchdog is released.
+- **Recovery is judged on application behaviour** — pages serving, and where a
+  write path exists, a write accepted — never on container status.
+- **The model recommends; a human approves.** Out-of-range values are rejected,
+  not clamped.
+- **Secrets come from environment variables** and are never committed, printed
+  or logged.
 
 ### Manual Kill Switch
 
@@ -131,7 +213,9 @@ file before the next experiment:
 Remove-Item chaos-scripts/STOP
 ```
 
-If PowerShell is forcibly terminated, restore manually from the repository root:
+If PowerShell is forcibly terminated, the detached watchdog container restores
+the target on its own — that is what it exists for, and it is verified by the
+disposable recovery audit. To restore by hand anyway, from the repository root:
 
 ```powershell
 docker compose -f src/docker-compose.yml start workshopmanagementapi
@@ -172,14 +256,27 @@ SQL Server uses the Compose-managed `sqlserverdata` volume. Adding `-v` to
 
 ```text
 chaos-scripts/
-  .gitkeep
-  kill-service.ps1          Workshop API crash experiment
-  results/                 Generated local evidence (ignored by Git)
+  ChaosSafety.psm1          Shared guards: sandbox check, lock, watchdog
+  kill-service.ps1          Workshop API crash
+  kill-rabbitmq.ps1         Broker outage (needs -Execute)
+  kill-database.ps1         SQL Server outage (needs -Execute)
+  network-delay.ps1         Added latency via netem sidecar
+  packet-loss.ps1           Partial packet loss via netem sidecar
+  map-dependencies.ps1      Dependency and data-flow mapper
+  analyze.ps1               Deterministic scoring and findings
+  results/                  Generated local evidence (ignored by Git)
+dashboard/                  Resilience console (ASP.NET Core)
+  Ai/                       Providers, router, validator, experiment catalog
+  wwwroot/                  UI, including the baseline chart
+dashboard.Tests/            193 xUnit tests, including the model boundary
+tests/                      Recovery-contract and disposable audits
 docs/
-  .gitkeep
-  kill-service.md          Experiment instructions and findings
-  arc42/                   Original architecture documentation
-  ADRs/                    Original architecture decision records
+  ARCHITECTURE_OVERVIEW.md  Submission architecture page
+  FINDINGS_REPORT.md        Submission findings
+  DEMO_SCRIPT.md            Submission demo script
+  TEAM_FORM.md              Submission team details
+  arc42/                    Original upstream architecture documentation
+  ADRs/                     Original upstream decision records
 src/
   docker-compose.yml       Local deployment
   WebApp/                  Garage management website
@@ -191,15 +288,28 @@ LICENSE
 README.md
 ```
 
-## Hackathon Roadmap
+## Submission documents
 
-Day 1: demonstrate a running app, map dependencies and data flows, capture a
-steady-load baseline, and show one failure with tested rollback controls.
+| Document | What it is |
+| --- | --- |
+| [Architecture overview](docs/ARCHITECTURE_OVERVIEW.md) | One page: services, telemetry, AI, safety controller, recovery |
+| [Findings report](docs/FINDINGS_REPORT.md) | Ranked weaknesses with severity, evidence and fixes, from 29 real runs |
+| [Demo script](docs/DEMO_SCRIPT.md) | Timed 3-minute script and shot list. The video is not yet recorded |
+| [Team form](docs/TEAM_FORM.md) | Ready-to-copy submission details |
+| [Requirements to evidence](docs/REQUIREMENTS_EVIDENCE.md) | Every requirement, what satisfies it, and how it was checked |
+| [AI setup](docs/AI_SETUP.md) | Provider configuration, and why the local model was chosen by measurement |
+| [Experiment roadmap](docs/EXPERIMENT_ROADMAP.md) | Why each experiment exists, and why some are still not executable |
 
-Day 2: use AI to rank experiments, run at least three failure types, and generate
-ranked findings with evidence and recommended fixes. Prepare the source code,
-demo video (three minutes or less), architecture overview, findings report, and
-team form.
+## Known limitations
+
+- The RabbitMQ write/event divergence is **open**: a row can commit while its
+  event is never published. Restoring the broker does not repair it.
+- `pause-service` is **not executable**. A paused container stays paused, and no
+  unpause watchdog exists yet, so it is not registered.
+- All measurements are from a near-idle single-host sandbox with no load
+  generator, so they are a floor rather than a production figure.
+- A configured packet-loss percentage is **not** a request-failure rate; TCP
+  retransmits absorb most of it.
 
 ## Attribution and License
 

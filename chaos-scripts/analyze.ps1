@@ -85,7 +85,16 @@ $analyses = foreach ($path in $ReportPath) {
     }
 
     # 3. Recovery.
-    if (-not $report.Recovered) {
+    # A run that aborted before injecting anything has Recovered=false
+    # trivially: nothing was broken, so nothing recovered. Scoring that as a
+    # failed recovery punishes the safety controls for working. Recovery is
+    # unmeasured for those runs, which is not the same as failed.
+    $faultWasInjected = $null -ne $report.FaultStartedUtc
+    if (-not $faultWasInjected) {
+        $dimensions.Add((Get-Dimension 'Recovery' 25 $null `
+            'No fault was injected - the run aborted during preflight or baseline, so recovery was never exercised'))
+    }
+    elseif (-not $report.Recovered) {
         $dimensions.Add((Get-Dimension 'Recovery' 25 0.0 'Service did not recover within the timeout'))
     }
     elseif ($null -eq $report.RecoverySeconds) {
@@ -131,7 +140,10 @@ $analyses = foreach ($path in $ReportPath) {
             Recommendation = 'Write the event to an outbox table in the same transaction as the row and drain it with a relay, and make the write idempotent on CustomerId so a retry cannot duplicate the record.'
         })
     }
-    if (-not $report.Recovered) {
+    # Only when a fault actually reached the system. Without this guard an
+    # aborted run - the safety controls doing their job - is reported as a
+    # High-severity recovery failure.
+    if ($faultWasInjected -and -not $report.Recovered) {
         $findings.Add([pscustomobject][ordered]@{
             Severity = 'High'; Title = 'Service did not recover within the timeout'
             Hypothesis = 'Restore completed but the service did not return to a healthy state in the allotted window.'
