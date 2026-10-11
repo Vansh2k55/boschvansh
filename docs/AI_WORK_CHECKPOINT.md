@@ -12,40 +12,68 @@ file and `git log`.
 | --- | --- |
 | 0 Recover and checkpoint | **Done** |
 | 1 Verify Groq live | **Provider path passed. End-to-end UNVERIFIED** — see below |
-| 2 Audit workflow against milestones | Not started |
+| 2 Audit workflow against milestones | **Done** — `docs/REQUIREMENTS_EVIDENCE.md` |
 | 3 Implement `packet-loss` | **Done** — registered and executable, evidence below |
 | 4 Reach five executable experiments | **Done** — five executable, each with recovery evidence |
-| 5–8 | Not started |
+| 5 Dashboard milestones + baseline graph | **Done** — nine areas, chart from real samples |
+| 6 Five submission deliverables | **Done** — verified via `/api/submission` |
+| 7 Final regression and safety audit | **Done** — 193 tests, 56 contract assertions |
+| 8 Demo video recording | **Not done** — script ready, recording is manual |
 
-## Phase 1 — Groq: provider path passed, application path not yet
+## Groq: UNVERIFIED end to end, and precisely diagnosed
 
-Two things were being conflated. They are now separated, because only one of
-them has evidence.
+**Do not call Groq verified.** No dashboard recommendation has reported
+`provider: groq`.
 
-**Passed — the provider path.** `tests/groq_live_check.ps1` returned status 200
-with usable output for both `openai/gpt-oss-20b` and `openai/gpt-oss-120b`,
-against the real schema fetched from `/api/ai/schema`. Both earlier defects are
-fixed: the 413 (`EvidenceBudget`, `9c36885`) and the 400 validation failure,
-which was a missing `max_completion_tokens` — the model was being cut off
-mid-object, so its truncated JSON could never validate (`ad4f118`).
+What is known, with no further calls spent:
 
-**UNVERIFIED — the application path.** No dashboard recommendation has yet
-reported `provider: groq`. The live check posts to Groq directly and bypasses
-the application, so it cannot stand in for the real workflow. Until a real
-recommendation comes back with `provider: groq`, Groq is **not** verified
-end-to-end. A fallback to Ollama is not a pass.
+- *Provider path passes.* `tests/groq_live_check.ps1` returns 200 with usable
+  output for `openai/gpt-oss-20b` and `openai/gpt-oss-120b`. It posts to Groq
+  directly and bypasses the application, so it cannot stand in for the workflow.
+- *The application path returned 400 again* on 2026-10-11. But the dashboard
+  that produced it is a **stale build**: its `/api/state` offers **3**
+  executable experiments, not 5, so it predates `59874e1` and therefore
+  `ad4f118`, the commit adding `max_completion_tokens`. Its error also lacked
+  the `failed_generation` tail that `ad4f118` appends, while Groq's own message
+  says that field is present. Both point the same way: **the fix is committed
+  and has never actually run.**
+- *The schema is eliminated as a cause, offline.* The live schema from
+  `/api/ai/schema` walks clean against strict structured-output rules - 3
+  objects, all `additionalProperties: false`, every property in `required`, no
+  unsupported keyword. Zero findings. So the 400 is the model's own output
+  failing, consistent with truncation.
 
-The check itself overstated its result and was corrected in this phase: it
-reported "schema-valid JSON" when it had only parsed JSON. It now checks the
-returned object against the schema's own top-level `required` list, so a model
-that returns well-formed JSON with properties missing is reported as a failure
-rather than a pass. Its verdict also now states in plain words that it covers
-the provider path only.
+**Ollama answers and the demo does not depend on Groq.** `qwen2.5:3b` returns a
+conforming recommendation in 18.4s cold, 9.1-9.5s warm. `qwen3.5:4b`, the old
+default, exceeded 240s and produced nothing - a live recommendation returned
+HTTP 503 with both providers failing before this was fixed.
 
-**To close this**, in a window that has `GROQ_API_KEY` set: start the dashboard,
-request a recommendation from the UI, and confirm the response says
-`provider: groq`. No further standalone provider tests are needed — that
-question is already answered.
+## Next action — needs the operator
+
+**One command, and it is the only thing still blocking a claim.** Restart the
+dashboard from current `main`, in a window that has the key, so the Groq fix
+runs for the first time:
+
+```powershell
+# stop the running dashboard first (Ctrl+C in its window)
+$env:GROQ_API_KEY = "<your key>"      # same window as the next command
+dotnet run --project dashboard/Dashboard.csproj --urls http://localhost:5280
+```
+
+Then open `http://localhost:5280`, click **AI Recommend Experiment**, read the
+provider badge.
+
+- `provider: groq` -> verified end to end. Update this file and
+  `docs/REQUIREMENTS_EVIDENCE.md`.
+- Groq 400 again -> the token fix was not the cause. The schema is already
+  eliminated, so next capture the `failed_generation` tail the current build
+  surfaces, which shows what the model actually produced.
+
+A key set in a different window is not inherited by the dashboard's process.
+Never commit, print or log it.
+
+Restarting also picks up the five registered experiments, the baseline chart,
+`/api/submission`, and `qwen2.5:3b`.
 
 ## Experiment catalog
 
@@ -148,7 +176,7 @@ form for probes, a `wslrelay` process can hold `[::1]:7005` without serving it.
 
 - `src/` upstream Pitstop; `chaos-scripts/` experiments, `ChaosSafety.psm1`
   guards, `analyze.ps1` deterministic agent; `dashboard/` ASP.NET Core console
-  and `Ai/` provider layer; `dashboard.Tests/` 170 tests; `tests/` disposable
+  and `Ai/` provider layer; `dashboard.Tests/` 193 tests; `tests/` disposable
   and contract harnesses.
 - `ExperimentCatalog` is the only allowlist. `RecommendationValidator` and
   `DiscoveryValidator` are the model boundary. `IExperimentRunner` is the only
@@ -157,8 +185,8 @@ form for probes, a `wslrelay` process can hold `[::1]:7005` without serving it.
 **Tests**
 
 ```powershell
-dotnet test dashboard.Tests                                   # 170 passing
-./tests/recovery_contract_tests.ps1                           # 23 assertions
+dotnet test dashboard.Tests                                   # 193 passing
+./tests/recovery_contract_tests.ps1                           # 56 assertions
 python tests/disposable_recovery_audit.py --execute-disposable
 ./tests/groq_live_check.ps1                                   # live, needs the key
 ```
