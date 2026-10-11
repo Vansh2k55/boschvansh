@@ -45,10 +45,22 @@ public sealed class AiOptions
         /// Read from configuration rather than assumed. Nothing here downloads a
         /// model; if it is not installed the provider reports that and is skipped.
         /// </summary>
-        public string Model { get; init; } = "qwen3.5:4b";
+        /// <remarks>
+        /// Measured, not chosen by size: qwen2.5:3b returns a conforming
+        /// recommendation in 9-18s against the real schema, while qwen3.5:4b
+        /// exceeded 240s and produced nothing. Constrained decoding against a
+        /// 15-property schema is the expensive part. See docs/AI_SETUP.md.
+        /// This default matches appsettings.json so a missing configuration
+        /// file cannot quietly restore a model that does not finish.
+        /// </remarks>
+        public string Model { get; init; } = "qwen2.5:3b";
 
-        /// <summary>Local inference on CPU is far slower than a hosted API.</summary>
-        public int TimeoutSeconds { get; init; } = 240;
+        /// <summary>
+        /// Local inference on CPU is far slower than a hosted API. 120s is
+        /// about six times the measured cold start, so a real hang still fails
+        /// inside a useful window.
+        /// </summary>
+        public int TimeoutSeconds { get; init; } = 120;
     }
 
     public static AiOptions Load(IConfiguration configuration)

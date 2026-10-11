@@ -310,3 +310,51 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   color: var(--warn); border-color: var(--warn); border-style: dotted;
   letter-spacing: 0.04em;
 }
+
+/* Milestone status pills. The colour carries the same information as the word,
+   never more: nothing here can report a status the data did not produce. */
+.ms {
+  display: inline-block;
+  margin-left: 9px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.ms-ok { background: color-mix(in oklab, var(--ok) 18%, transparent); color: var(--ok); }
+.ms-warn { background: color-mix(in oklab, var(--warn) 18%, transparent); color: var(--warn); }
+.ms-bad { background: color-mix(in oklab, var(--fail) 16%, transparent); color: var(--fail); }
+
+/* Baseline / impact / recovery chart */
+.chart-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 16px 0 6px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+}
+.chart { width: 100%; height: auto; display: block; }
+.chart .band-baseline { fill: color-mix(in oklab, var(--ok) 7%, transparent); }
+.chart .band-fault { fill: color-mix(in oklab, var(--fail) 9%, transparent); }
+.chart .band-recovery { fill: color-mix(in oklab, var(--accent) 7%, transparent); }
+.chart .band-edge { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
+.chart .band-label {
+  fill: var(--text-faint);
+  font-size: 10px;
+  text-anchor: middle;
+  letter-spacing: 0.04em;
+}
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .axis { fill: var(--text-faint); font-size: 9.5px; text-anchor: end; }
+.dot-x {
+  background: transparent;
+  border: 1px solid var(--text-faint);
+  transform: rotate(45deg);
+  border-radius: 0;
+}
+.chart .fail-row { stroke: var(--fail); stroke-dasharray: 3 4; opacity: 0.5; }

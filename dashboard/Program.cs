@@ -148,6 +148,59 @@ app.MapGet("/api/ai/schema", () => Results.Json(new
     explanation = AiPrompts.ExplanationSchema(),
 }, jsonOptions));
 
+// Read-only. Reports which submission deliverables exist on disk, so the
+// dashboard's readiness panel reflects the filesystem rather than someone's
+// memory of what was written. A missing file shows as missing.
+app.MapGet("/api/submission", () =>
+{
+    (string Id, string Name, string Path, string Note)[] deliverables =
+    [
+        ("source", "Source code and README", "README.md",
+            "Setup, usage, safety boundaries and limitations."),
+        ("demo", "Demo video script (≤3 min)", "docs/DEMO_SCRIPT.md",
+            "Timed script and shot list. Recording the video is a manual step."),
+        ("architecture", "Architecture overview", "docs/ARCHITECTURE_OVERVIEW.md",
+            "One page: services, telemetry, AI, safety controller, recovery."),
+        ("findings", "Findings report", "docs/FINDINGS_REPORT.md",
+            "Ranked weaknesses with severity and evidence from real runs."),
+        ("team", "Team form information", "docs/TEAM_FORM.md",
+            "Ready to copy, with explicit placeholders for unknowns."),
+    ];
+
+    var items = deliverables.Select(d =>
+    {
+        var full = Path.Combine(repoRoot, d.Path.Replace('/', Path.DirectorySeparatorChar));
+        var exists = File.Exists(full);
+        // Line count is a crude proxy, but it distinguishes a real document
+        // from an empty placeholder, which is the failure worth catching.
+        var lines = 0;
+        if (exists)
+        {
+            try { lines = File.ReadLines(full).Count(); }
+            catch (IOException) { lines = -1; }
+        }
+        return new
+        {
+            id = d.Id,
+            name = d.Name,
+            path = d.Path,
+            exists,
+            lines,
+            status = exists ? (lines > 20 ? "Complete" : "Incomplete") : "Not started",
+            note = d.Note,
+        };
+    }).ToArray();
+
+    return Results.Json(new
+    {
+        deliverables = items,
+        // The video itself cannot be detected, and claiming otherwise would be
+        // the exact kind of unverifiable statement this project avoids.
+        videoRecorded = false,
+        videoNote = "No video file is tracked in this repository. The script is prepared; recording is a manual step.",
+    }, jsonOptions);
+});
+
 app.MapPost("/api/ai/mode", (ModeRequest request, AiModeStore store) =>
 {
     if (!Enum.TryParse<AiMode>(request.Mode, ignoreCase: true, out var mode))

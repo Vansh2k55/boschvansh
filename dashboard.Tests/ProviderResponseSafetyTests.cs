@@ -101,8 +101,10 @@ public class ProviderResponseSafetyTests : IDisposable
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             if (request.RequestUri!.AbsolutePath.EndsWith("/api/tags"))
+                // The configured model, not a literal: see AiEndpointTests.
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
-                    Content = new StringContent("{\"models\":[{\"name\":\"qwen3.5:4b\"}]}") });
+                    Content = new StringContent(
+                        $"{{\"models\":[{{\"name\":\"{new AiOptions().Ollama.Model}\"}}]}}") });
             return Task.FromResult(new HttpResponseMessage(status) {
                 Content = slow ? new SlowContent() : new StringContent(body) });
         }

@@ -32,8 +32,11 @@ internal sealed class StubAiHandler : HttpMessageHandler
         (HttpStatusCode Status, string Body)? ollama = null,
         IEnumerable<string>? installedModels = null)
     {
+        // Defaults to whatever model the app is configured to want, so
+        // changing that default cannot silently make every fallback test fail
+        // by leaving the configured model "not installed".
         var models = installedModels is null
-            ? new JsonArray(new JsonObject { ["name"] = "qwen3.5:4b" })
+            ? new JsonArray(new JsonObject { ["name"] = new AiOptions().Ollama.Model })
             : new JsonArray(installedModels.Select(m => (JsonNode)new JsonObject { ["name"] = m }).ToArray());
 
         return new StubAiHandler(request =>

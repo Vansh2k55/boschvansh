@@ -46,6 +46,8 @@ function render() {
   renderExperiments();
   renderKillSwitch();
   renderTimeline();
+  renderMilestones();
+  populateChartRuns();
 }
 
 function renderFreshness() {
@@ -420,3 +422,9 @@ function renderTimeline() {
 }
 
 refresh();
+
+// Panels with their own data sources. Polled far less often than state:
+// deliverable files and provider configuration do not change every 2s.
+refreshProviderStatus();
+renderSubmission();
+setInterval(() => { refreshProviderStatus(); renderSubmission(); }, 60000);

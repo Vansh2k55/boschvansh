@@ -16,9 +16,9 @@ Ollama **is already installed and working**: version 0.40.2, with three models:
 
 | Model | Size | Notes |
 | --- | --- | --- |
-| `qwen3.5:4b` | 3.4 GB | **Current default.** Tools, thinking, 262k context |
+| `qwen3.5:4b` | 3.4 GB | Tools, thinking, 262k context. **Too slow here** — exceeded 240s |
 | `deepseek-r1:8b` | 5.2 GB | Larger, slower, stronger reasoning |
-| `qwen2.5:3b` | 1.9 GB | Smallest and fastest |
+| `qwen2.5:3b` | 1.9 GB | **Current default.** Smallest and fastest — 9–18s, measured |
 
 **You do not need to install anything for the local fallback.** It was tested
 end to end and produced a valid, validated recommendation.
@@ -93,7 +93,7 @@ active. It never returns the key.
   "Groq":   { "Endpoint": "https://api.groq.com/openai/v1/chat/completions",
               "Model": "openai/gpt-oss-20b", "TimeoutSeconds": 60 },
   "Ollama": { "BaseUrl": "http://localhost:11434",
-              "Model": "qwen3.5:4b", "TimeoutSeconds": 240 }
+              "Model": "qwen2.5:3b", "TimeoutSeconds": 120 }
 }
 ```
 
@@ -116,15 +116,39 @@ unstructured output and far more rejections. Check
 
 ## Which local model should I use?
 
-`qwen3.5:4b` (the default) is the right balance on a laptop. If recommendations
-get rejected often and you have the patience for slower inference:
+**`qwen2.5:3b` — the default, chosen by measurement rather than by size.**
+
+`qwen3.5:4b` was the default until it was timed against the real schema and the
+real evidence payload. It does not finish:
+
+| Model | Time to a conforming answer | Result |
+| --- | --- | --- |
+| `qwen2.5:3b` | **18.4s cold, 9.1–9.5s warm** | Conforming, and deterministic at temperature 0 |
+| `qwen3.5:4b` | **exceeded 240s** | Timed out in the dashboard; no recommendation at all |
+
+Measured on 2026-10-11 against the live schema from `/api/ai/schema` and the
+8.2KB evidence payload the dashboard actually sends, using the same request
+shape as `OllamaClient` (POST `/api/chat`, `stream: false`, raw schema in
+`format`, temperature 0). Three consecutive `qwen2.5:3b` runs each returned the
+same valid recommendation.
+
+That timeout was not hypothetical: a live dashboard recommendation returned
+HTTP 503 with `ollama: Ollama timed out after 240s`, so the planner produced
+nothing. Constrained decoding against a 15-property schema is the expensive
+part, and a smaller model pays it far more cheaply than a larger one reasons
+its way to a better answer.
+
+The timeout is now 120s rather than 240s — about six times the measured cold
+start, so a genuine hang still fails in a usable amount of time.
+
+If you want a larger model, measure it before making it the default:
 
 ```powershell
-$env:OLLAMA_MODEL = "deepseek-r1:8b"
+$env:OLLAMA_MODEL = "deepseek-r1:8b"   # slower; time it first
 ```
 
-Smaller models hallucinate experiment names. That is handled — see below — but a
-larger model needs fewer retries.
+Smaller models do hallucinate experiment names. That is handled — see below —
+and is a cheaper problem than a provider that never answers.
 
 ## How a bad recommendation is handled
 
