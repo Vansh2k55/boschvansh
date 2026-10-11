@@ -106,13 +106,13 @@ Environment overrides, for one session:
 | `OLLAMA_MODEL` | e.g. `deepseek-r1:8b` for stronger local reasoning |
 | `OLLAMA_BASE_URL` | If Ollama runs elsewhere |
 
-### A warning about the Groq model
+### Groq response validation
 
-Groq only honours `response_format: json_schema` in strict mode on the
-**gpt-oss family and `qwen/qwen3.8-27b`**. Switching `GROQ_MODEL` to a Llama
-model would accept the request and **silently ignore the schema**, which means
-unstructured output and far more rejections. Check
-**https://console.groq.com/docs/structured-outputs** before changing it.
+The dashboard requests a JSON object from Groq and includes the response
+contract in the prompt. It then parses and validates the response against the
+fixed experiment catalog on the server. A model can never select an arbitrary
+container, widen a duration, or execute a command; malformed output is rejected
+before it reaches the approval flow.
 
 ## Which local model should I use?
 

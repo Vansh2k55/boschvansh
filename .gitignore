@@ -281,3 +281,6 @@ dotnet-install.sh
 
 # Experiment concurrency lock (runtime artifact)
 /chaos-scripts/experiment.lock
+
+# Local AI credentials for the demo launcher
+/.env

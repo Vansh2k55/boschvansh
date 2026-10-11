@@ -115,7 +115,7 @@ public static class AiPrompts
             {
                 ["type"] = "string",
                 ["description"] = "The fixed target container for that experiment.",
-                ["enum"] = new JsonArray("workshopmanagementapi", "rabbitmq"),
+                ["enum"] = new JsonArray("workshopmanagementapi", "rabbitmq", "sqlserver"),
             },
             ["durationSeconds"] = new JsonObject { ["type"] = "integer", ["description"] = "Within the permitted range for the chosen experiment." },
             ["hypothesis"] = Str("What you expect this experiment to reveal."),

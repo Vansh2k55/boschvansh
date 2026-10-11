@@ -19,10 +19,9 @@ public sealed class AiOptions
         public string Endpoint { get; init; } = "https://api.groq.com/openai/v1/chat/completions";
 
         /// <summary>
-        /// Must be a model that supports response_format json_schema in strict
-        /// mode. Per Groq's docs that is the gpt-oss family and qwen3.8-27b -
-        /// the Llama models do not, so swapping this for llama-3.3-70b-versatile
-        /// would silently lose schema enforcement.
+        /// Defaults to the gpt-oss family, which is validated against the
+        /// dashboard's JSON-object contract. The server independently validates
+        /// every provider response against the fixed experiment catalog.
         /// </summary>
         public string Model { get; init; } = "openai/gpt-oss-20b";
         public int TimeoutSeconds { get; init; } = 60;

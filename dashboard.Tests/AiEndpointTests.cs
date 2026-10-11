@@ -206,8 +206,8 @@ public class AiEndpointTests : IDisposable
 
         var groqBody = app.Handler.Bodies.First(b => b.Contains("response_format"));
         var sent = JsonNode.Parse(groqBody)!;
-        Assert.Equal("json_schema", sent["response_format"]!["type"]!.GetValue<string>());
-        Assert.True(sent["response_format"]!["json_schema"]!["strict"]!.GetValue<bool>());
+        Assert.Equal("json_object", sent["response_format"]!["type"]!.GetValue<string>());
+        Assert.Contains("Return exactly one valid JSON object", sent["messages"]![0]!["content"]!.GetValue<string>());
         Assert.Contains("api.groq.com", app.Handler.CalledHosts);
     }
 

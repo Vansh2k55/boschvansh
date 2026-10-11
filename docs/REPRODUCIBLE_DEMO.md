@@ -66,7 +66,7 @@ containers created from this checkout's Compose path.
 | WebApp | 7005 |
 | RabbitMQ AMQP / management | 5672 / 15672 |
 | SQL Server | 1434 |
-| MailDev SMTP / UI | 25 / 4000 |
+| MailDev SMTP / UI | 25 / 4001 |
 | Seq UI | 5341 |
 | Customer / Vehicle / Workshop APIs | dynamically published; use Compose port for 5100 / 5000 / 5200 |
 | C# dashboard | 5280 (explicit launch URL below) |

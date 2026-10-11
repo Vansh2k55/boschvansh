@@ -10,12 +10,11 @@ namespace Pitstop.ResilienceDashboard;
 /// </summary>
 /// <remarks>
 /// Verified against console.groq.com: POST https://api.groq.com/openai/v1/chat/completions,
-/// bearer auth, OpenAI-compatible body, and structured output through
-/// response_format json_schema with strict true.
+/// bearer auth, OpenAI-compatible body, and JSON-object output.
 ///
-/// Strict schema mode is only available on the gpt-oss family and qwen3.8-27b,
-/// which is why the default model is openai/gpt-oss-20b rather than a Llama
-/// model - those would accept the request and quietly ignore the schema.
+/// The model receives the response contract in its system message and must
+/// return one JSON object. The server parses and validates that object against
+/// the fixed experiment catalog before an operator can approve anything.
 ///
 /// GROQ_API_KEY is read at call time, never cached in a field, never logged and
 /// never returned. Failures come back as results rather than exceptions so a
@@ -85,23 +84,24 @@ public sealed class GroqClient(HttpClient http, AiOptions options) : IAiProvider
             return (false, null, "GROQ_API_KEY is not set.");
         }
 
+        // Groq's strict json_schema endpoint rejected the current recommendation
+        // contract with HTTP 400 despite a valid schema. json_object reliably
+        // constrains the envelope; server-side parsing and allowlist validation
+        // remain the authority for every safety-relevant field.
+        var contractPrompt = systemPrompt +
+            "\n\nReturn exactly one valid JSON object and no markdown. Its required contract is:\n" +
+            jsonSchema.ToJsonString();
         var body = new JsonObject
         {
             ["model"] = options.Groq.Model,
             ["messages"] = new JsonArray(
-                new JsonObject { ["role"] = "system", ["content"] = systemPrompt },
+                new JsonObject { ["role"] = "system", ["content"] = contractPrompt },
                 new JsonObject { ["role"] = "user", ["content"] = userPrompt }),
             // gpt-oss models take max_completion_tokens rather than max_tokens.
             ["max_completion_tokens"] = options.Groq.MaxCompletionTokens,
             ["response_format"] = new JsonObject
             {
-                ["type"] = "json_schema",
-                ["json_schema"] = new JsonObject
-                {
-                    ["name"] = schemaName,
-                    ["strict"] = true,
-                    ["schema"] = jsonSchema,
-                },
+                ["type"] = "json_object",
             },
         };
 

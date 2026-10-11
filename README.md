@@ -56,7 +56,7 @@ Honest gaps, in more detail in [the evidence matrix](docs/REQUIREMENTS_EVIDENCE.
 - Git and PowerShell.
 - Docker Desktop running with Linux containers and the WSL 2 backend on Windows.
 - Internet access for initial image builds and dependency downloads.
-- Free host ports: 7005, 1434, 5672, 15672, 4000, 25, and 5341.
+- Free host ports: 7005, 1434, 5672, 15672, 4001, 25, and 5341.
 
 The Docker builds install application toolchains inside the images. A local
 .NET SDK or Node.js installation is not required for this workflow.
@@ -109,7 +109,7 @@ groups of 1-3 letters or 1-3 digits, such as `ABC-12-34`.
 | Workshop Management | http://localhost:7005/WorkshopManagement |
 | Website health endpoint | http://localhost:7005/hc |
 | RabbitMQ management | http://localhost:15672 |
-| Captured emails (MailDev) | http://localhost:4000 |
+| Captured emails (MailDev) | http://localhost:4001 |
 | Centralized logs (Seq) | http://localhost:5341 |
 
 ## The resilience console
